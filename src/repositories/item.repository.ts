@@ -3,6 +3,7 @@ import { IItem, ItemModel } from "../models/item.model";
 export interface IItemRepository {
   createItem(data: Partial<IItem>): Promise<IItem>;
   getItemById(id: string): Promise<IItem | null>;
+  getItemByIdRaw(id: string): Promise<IItem | null>;
   getAllItems(): Promise<IItem[]>;
   getItemsBySellerId(sellerId: string): Promise<IItem[]>;
   updateItemById(id: string, data: Partial<IItem>): Promise<IItem | null>;
@@ -22,6 +23,10 @@ export class ItemRepository implements IItemRepository {
       "sellerId",
       "firstName lastName contactNo profileImage"
     );
+  }
+
+  async getItemByIdRaw(id: string) {
+    return await ItemModel.findById(id);
   }
 
   async getAllItems() {

@@ -16,13 +16,22 @@ export class CartService {
    */
   async addToCart(userId: string, data: AddToCartDto) {
     // 1. Validate product exists
-    const product = await itemRepository.getItemById(data.productId);
+    const product = await itemRepository.getItemByIdRaw(data.productId);
     if (!product) {
       throw new HttpError(404, "Product not found");
     }
 
     // 1.5 Prevent seller from buying their own item
-    if (product.sellerId.toString() === userId) {
+    const productSeller = product.sellerId as any;
+    const sellerId = productSeller?._id
+      ? productSeller._id.toString()
+      : productSeller?.toString();
+
+    if (!sellerId) {
+      throw new HttpError(400, "Product seller information is missing");
+    }
+
+    if (sellerId === userId) {
       throw new HttpError(400, "You cannot buy your own item.");
     }
 
