@@ -5,6 +5,7 @@ import { StripePaymentModel } from "../models/stripePayment.model";
 import { PaymentModel } from "../models/payment.model";
 import { ItemModel } from "../models/item.model";
 import { NotificationService } from "../services/notification.service";
+import mongoose from "mongoose";
 
 const stripeSecret = process.env.STRIPE_SECRET_KEY || "";
 const stripePublishable =
@@ -36,6 +37,46 @@ if (!stripeSecret || !stripeSecret.startsWith("sk_")) {
 
 const stripe = new Stripe(stripeSecret || "sk_undefined", {} as Stripe.StripeConfig);
 
+const resolveItemId = (...sources: Array<Record<string, any> | undefined>) => {
+  const keys = ["productId", "itemId", "item_id", "product_id", "_id"];
+
+  for (const source of sources) {
+    if (!source) continue;
+
+    for (const key of keys) {
+      const value = source[key];
+      if (value && mongoose.Types.ObjectId.isValid(value.toString())) {
+        return value.toString();
+      }
+    }
+  }
+
+  return undefined;
+};
+
+const markItemAsSoldAfterSuccessfulPayment = async (productId?: string) => {
+  if (!productId) return null;
+
+  const item = await ItemModel.findById(productId).lean();
+  if (!item) return null;
+
+  const updateResult = await ItemModel.updateOne(
+    { _id: productId, isSold: { $ne: true } },
+    { $set: { isSold: true, status: "sold" } }
+  );
+
+  if (updateResult.modifiedCount > 0) {
+    const sellerId = (item as any).sellerId?.toString();
+    const productName = (item as any).phoneModel || (item as any).itemName || "your item";
+
+    if (sellerId) {
+      await NotificationService.notifyProductSold(sellerId, productId, productName);
+    }
+  }
+
+  return item;
+};
+
 export class PaymentController {
   async createStripeCheckout(req: Request, res: Response) {
     if (!stripeSecret || !stripeSecret.startsWith("sk_")) {
@@ -57,6 +98,9 @@ export class PaymentController {
         amount,
         productName,
         productId,
+        itemId,
+        item_id,
+        product_id,
         buyerName,
         buyerPhone,
         orderId,
@@ -73,6 +117,10 @@ export class PaymentController {
         metadata = {},
         flow,
       } = req.body;
+      const resolvedProductId = resolveItemId(
+        { productId, itemId, item_id, product_id },
+        metadata
+      );
 
       const origin =
         (req.headers.origin as string) ||
@@ -84,15 +132,30 @@ export class PaymentController {
         return res.status(400).json({ error: "Invalid amount" });
       }
 
+      if (!resolvedProductId) {
+        return res.status(400).json({ error: "Valid productId or itemId is required" });
+      }
+
+      const product = await ItemModel.findById(resolvedProductId);
+      if (!product) {
+        return res.status(404).json({ error: "Item not found" });
+      }
+
+      if (product.isSold || product.status === "sold") {
+        return res.status(400).json({ error: "Item is already sold" });
+      }
+
       // Prevent seller from buying their own item
-      if (productId) {
-        const product = await ItemModel.findById(productId);
-        if (product) {
-          const buyerId = (req as any).user?._id?.toString() || (req as any).user?.id;
-          if (buyerId && product.sellerId.toString() === buyerId) {
-            return res.status(400).json({ error: "You cannot buy your own item." });
-          }
-        }
+      const buyerId = (req as any).user?._id?.toString() || (req as any).user?.id;
+      if (buyerId && product.sellerId.toString() === buyerId) {
+        return res.status(400).json({ error: "You cannot buy your own item." });
+      }
+
+      const expectedAmount = Number(product.finalPrice || product.price || 0);
+      if (expectedAmount && amountNum !== expectedAmount) {
+        return res.status(400).json({
+          error: "Payment amount does not match item price",
+        });
       }
 
       const amountForStripe = Math.round(amountNum * 100);
@@ -111,8 +174,8 @@ export class PaymentController {
           automatic_payment_methods: { enabled: true },
           receipt_email: buyerEmail,
           metadata: {
+            ...mergedMetadata,
             orderId: orderId || "",
-            productId: productId || "",
             buyerName: buyerName || "",
             buyerPhone: buyerPhone || "",
             fullName: fullName || buyerName || "",
@@ -126,7 +189,8 @@ export class PaymentController {
             oid: oid || orderId || "",
             refId: refId || orderId || "",
             email: mergedMetadata.email || "",
-            ...mergedMetadata,
+            productId: resolvedProductId || "",
+            itemId: resolvedProductId || "",
           },
         });
 
@@ -148,7 +212,7 @@ export class PaymentController {
               currency: "usd",
               product_data: {
                 name: productName || "Product",
-                description: `Order ID: ${orderId || productId || "N/A"}`,
+                description: `Order ID: ${orderId || resolvedProductId || "N/A"}`,
               },
               unit_amount: amountForStripe,
             },
@@ -157,11 +221,12 @@ export class PaymentController {
         ],
         mode: "payment",
         success_url: `${origin}/stripe/success?session_id={CHECKOUT_SESSION_ID}`,
-        cancel_url: `${origin}/stripe/cancel?order_id=${encodeURIComponent(orderId || productId || "")}`,
+        cancel_url: `${origin}/stripe/cancel?order_id=${encodeURIComponent(orderId || resolvedProductId || "")}`,
+        client_reference_id: resolvedProductId,
         customer_email: buyerEmail || undefined,
         metadata: {
+          ...mergedMetadata,
           orderId: orderId || "",
-          productId: productId || "",
           buyerName: buyerName || "",
           buyerPhone: buyerPhone || "",
           fullName: fullName || buyerName || "",
@@ -175,7 +240,8 @@ export class PaymentController {
           oid: oid || orderId || "",
           refId: refId || orderId || "",
           email: mergedMetadata.email || "",
-          ...mergedMetadata,
+          productId: resolvedProductId || "",
+          itemId: resolvedProductId || "",
         },
       });
 
@@ -276,38 +342,28 @@ export class PaymentController {
 
             const existing = await StripePaymentModel.findOne({ $or: matchConditions });
             const meta = session.metadata || {};
-            const productId = (meta.productId as string) || undefined;
+            const productId = resolveItemId(
+              meta,
+              { productId: session.client_reference_id || undefined },
+              existing || undefined
+            );
             const orderId = (meta.orderId as string) || undefined;
             const buyerName = (meta.buyerName as string) || undefined;
             const buyerPhone = (meta.buyerPhone as string) || undefined;
 
-            // attempt to fetch item snapshot
+            // Mark the item sold only after Stripe confirms successful payment.
             let itemSnapshot = null;
             if (productId) {
               try {
-                const item = await ItemModel.findById(productId).lean();
-                if (item) {
-                  itemSnapshot = item;
-                  if (!existing) {
-                    try {
-                      await ItemModel.updateOne(
-                        { _id: productId },
-                        { $set: { isSold: true, status: "sold" } }
-                      );
-                      // Notify seller that their item was sold
-                      const sellerId = (item as any).sellerId?.toString();
-                      const productName = (item as any).phoneModel || "your item";
-                      if (sellerId) {
-                        await NotificationService.notifyProductSold(sellerId, productId, productName);
-                      }
-                    } catch (markErr: any) {
-                      paymentConsole.error("Failed to mark item as sold:", markErr);
-                    }
-                  }
-                }
+                itemSnapshot = await markItemAsSoldAfterSuccessfulPayment(productId);
               } catch (itmErr: any) {
-                paymentConsole.error("Failed to load item for payment snapshot:", itmErr);
+                paymentConsole.error("Failed to mark item as sold after payment:", itmErr);
               }
+            } else {
+              paymentConsole.warn(
+                "Payment succeeded but no valid productId/itemId was found in Stripe checkout session metadata.",
+                { sessionId: session.id, metadata: meta }
+              );
             }
 
             const resolvedEmail = await resolveEmail(session);
@@ -407,38 +463,24 @@ export class PaymentController {
           try {
             const existing = await StripePaymentModel.findOne({ paymentIntentId: pi.id });
             const meta = pi.metadata || {};
-            const productId = (meta.productId as string) || undefined;
+            const productId = resolveItemId(meta, existing || undefined);
             const orderId = (meta.orderId as string) || undefined;
             const buyerName = (meta.buyerName as string) || undefined;
             const buyerPhone = (meta.buyerPhone as string) || undefined;
 
-            // attempt to fetch item snapshot
+            // Mark the item sold only after Stripe confirms successful payment.
             let itemSnapshot = null;
             if (productId) {
               try {
-                const item = await ItemModel.findById(productId).lean();
-                if (item) {
-                  itemSnapshot = item;
-                  if (!existing) {
-                    try {
-                      await ItemModel.updateOne(
-                        { _id: productId },
-                        { $set: { isSold: true, status: "sold" } }
-                      );
-                      // Notify seller that their item was sold
-                      const sellerId = (item as any).sellerId?.toString();
-                      const productName = (item as any).phoneModel || "your item";
-                      if (sellerId) {
-                        await NotificationService.notifyProductSold(sellerId, productId, productName);
-                      }
-                    } catch (markErr: any) {
-                      paymentConsole.error("Failed to mark item as sold:", markErr);
-                    }
-                  }
-                }
+                itemSnapshot = await markItemAsSoldAfterSuccessfulPayment(productId);
               } catch (itmErr: any) {
-                paymentConsole.error("Failed to load item for payment snapshot:", itmErr);
+                paymentConsole.error("Failed to mark item as sold after payment:", itmErr);
               }
+            } else {
+              paymentConsole.warn(
+                "Payment succeeded but no valid productId/itemId was found in Stripe payment intent metadata.",
+                { paymentIntentId: pi.id, metadata: meta }
+              );
             }
 
             // Use an idempotent upsert to avoid duplicate inserts and avoid
