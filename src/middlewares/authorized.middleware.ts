@@ -86,9 +86,7 @@ let userRepository = new UserRepository();
 
 declare global {
   namespace Express {
-    interface Request {
-      user?: Record<string, any> | IUser;
-    }
+    interface User extends IUser {}
   }
 }
 
@@ -123,15 +121,16 @@ export async function authorizedMiddleWare(
 ) {
   try {
     const authHeader = req.headers.authorization;
+    const cookieToken = req.cookies?.token;
 
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    if ((!authHeader || !authHeader.startsWith("Bearer ")) && !cookieToken) {
       throw new HttpError(401, "unauthorized ,No bearer token");
     }
 
     // IMPORTANT:
     // If header becomes "Bearer Bearer eyJ..." then split(" ")[1] = "Bearer" (wrong)
     // So take everything after first "Bearer "
-    const rawToken = authHeader.slice(7); // removes first "Bearer "
+    const rawToken = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : cookieToken;
     const token = cleanToken(rawToken);
 
     if (!token) throw new HttpError(401, "unauthorized ,missing token");

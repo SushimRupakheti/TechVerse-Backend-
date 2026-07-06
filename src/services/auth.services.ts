@@ -2,19 +2,28 @@ import { UserRepository } from "../repositories/auth.repository";
 import { createUserDto, LoginUserDto } from "../dtos/auth.dto";
 import bycryptjs from "bcryptjs"
 import { HttpError } from "../errors/http-error";
-import { JWT_SECRET } from "../config";
+import { CLIENT_URL, JWT_SECRET } from "../config";
 import  jwt  from "jsonwebtoken";
 import { IUser } from "../models/user.model";
 import { UserModel } from "../models/user.model";
 import { sendEmail } from "../config/email";
-import dotenv from "dotenv";
-dotenv.config();
+import speakeasy from "speakeasy";
+import QRCode from "qrcode";
+import mongoose from "mongoose";
 
 
-const CLIENT_URL = process.env.CLIENT_URL as string;
 let userRepository =new UserRepository();
 
 export class AuthService{
+
+generateLoginToken(user: IUser) {
+    const payload={
+        id: user._id,
+        email: user.email,
+        role:user.role,
+    }
+    return jwt.sign(payload,JWT_SECRET,{expiresIn:'30d'});
+}
 
 async registerUser(data:createUserDto){
     //logic to register user,duplicate check, hash
@@ -22,10 +31,14 @@ async registerUser(data:createUserDto){
     if(emailExists){
         throw new HttpError(409,"email already registered");
     }
+    if(!data.password){
+        throw new HttpError(400,"Password is required");
+    }
 
     //donot save plain text password, hash the pass
     const hashedPassword = await bycryptjs.hash(data.password,10);   //complexity
     data.password =hashedPassword;  //replace plain text with hashed password
+    data.authProvider = "local";
     const newUser = await userRepository.createUser(data);
     return newUser
 
@@ -37,22 +50,145 @@ async LoginUser(data:LoginUserDto){
     if(!user){
         throw new HttpError(404,"user not found");
     }
+    const authProvider = user.authProvider || "local";
+    if(authProvider !== "local" || !user.password){
+        throw new HttpError(400,"Please sign in with Google for this account");
+    }
     const validPassword = await bycryptjs.compare(data.password,user.password);
     //plain text, hased, not data.password===user.passwprd
     if(!validPassword){
         throw new HttpError(404,"Invalid password");
     }
-    //generate jwt token 
-    const payload={
-        id: user._id,
-        email: user.email,
-        role:user.role,
+
+    if(user.twoFactorEnabled){
+        return {
+            twoFactorRequired: true,
+            userId: user._id.toString(),
+            email: user.email,
+            user,
+        };
     }
-    const token = jwt.sign(payload,JWT_SECRET,{expiresIn:'30d'});
+
+    //generate jwt token
+    const token = this.generateLoginToken(user);
     return {token,user}
 } 
 
+async enableTwoFactor(userId:string){
+    const user = await userRepository.getUserById(userId);
+    if(!user){
+        throw new HttpError(404,"User not found");
+    }
+    if(user.twoFactorEnabled){
+        throw new HttpError(400,"2FA is already enabled");
+    }
+
+    const secret = speakeasy.generateSecret({
+        name: `Recell Bazar (${user.email})`,
+        issuer: "Recell Bazar",
+    });
+
+    if(!secret.otpauth_url){
+        throw new HttpError(500,"Could not generate 2FA setup URL");
+    }
+
+    await userRepository.updateUserById(userId,{
+        twoFactorSecret: secret.base32,
+        twoFactorEnabled: false,
+    });
+
+    const qrCode = await QRCode.toDataURL(secret.otpauth_url);
+
+    return {
+        otpauthUrl: secret.otpauth_url,
+        qrCode,
+    };
+}
+
+async verifyTwoFactorSetup(userId:string, otp:string){
+    const user = await userRepository.getUserById(userId);
+    if(!user){
+        throw new HttpError(404,"User not found");
+    }
+    if(!user.twoFactorSecret){
+        throw new HttpError(400,"2FA setup has not been started");
+    }
+
+    const verified = speakeasy.totp.verify({
+        secret: user.twoFactorSecret,
+        encoding: "base32",
+        token: otp,
+        window: 1,
+    });
+
+    if(!verified){
+        throw new HttpError(400,"Invalid OTP");
+    }
+
+    const updatedUser = await userRepository.updateUserById(userId,{
+        twoFactorEnabled: true,
+    });
+
+    return updatedUser;
+}
+
+async verifyTwoFactorLogin(data:{ email?: string; userId?: string; otp: string }){
+    const user = data.userId
+        ? await userRepository.getUserById(data.userId)
+        : data.email
+            ? await userRepository.getUserByEmail(data.email)
+            : null;
+
+    if(!user){
+        throw new HttpError(404,"user not found");
+    }
+    if(!user.twoFactorEnabled || !user.twoFactorSecret){
+        throw new HttpError(400,"2FA is not enabled for this user");
+    }
+
+    const verified = speakeasy.totp.verify({
+        secret: user.twoFactorSecret,
+        encoding: "base32",
+        token: data.otp,
+        window: 1,
+    });
+
+    if(!verified){
+        throw new HttpError(400,"Invalid OTP");
+    }
+
+    const token = this.generateLoginToken(user);
+    return {token,user};
+}
+
+async disableTwoFactor(userId:string, password:string){
+    const user = await userRepository.getUserById(userId);
+    if(!user){
+        throw new HttpError(404,"User not found");
+    }
+
+    const authProvider = user.authProvider || "local";
+    if(authProvider !== "local" || !user.password){
+        throw new HttpError(400,"Password verification is not available for this account");
+    }
+
+    const validPassword = await bycryptjs.compare(password,user.password);
+    if(!validPassword){
+        throw new HttpError(404,"Invalid password");
+    }
+
+    const updatedUser = await userRepository.updateUserById(userId,{
+        twoFactorEnabled: false,
+        twoFactorSecret: null,
+    });
+
+    return updatedUser;
+}
+
 async updateUser(userId:string, data:Partial<createUserDto>){
+    if(!mongoose.Types.ObjectId.isValid(userId)){
+        throw new HttpError(400,"Invalid user id");
+    }
     // Hash password if it's being updated
     if(data.password){
         data.password = await bycryptjs.hash(data.password, 10);
@@ -66,6 +202,10 @@ async updateUser(userId:string, data:Partial<createUserDto>){
 
 
 async updateProfileImage(userId: string, imagePath: string) {
+  if(!mongoose.Types.ObjectId.isValid(userId)){
+    throw new HttpError(400,"Invalid user id");
+  }
+
   const user = await UserModel.findByIdAndUpdate(
     userId,
     { profileImage: imagePath },
@@ -80,6 +220,10 @@ async updateProfileImage(userId: string, imagePath: string) {
 }
 
 async getUserById(userId: string) {
+    if(!mongoose.Types.ObjectId.isValid(userId)){
+        throw new HttpError(400, "Invalid user id");
+    }
+
     const user = await userRepository.getUserById(userId);
     if (!user) {
         throw new HttpError(404, "User not found");

@@ -14,8 +14,12 @@ import cartRoutes from './routes/cart.route';
 import notificationRoutes from './routes/notification.route';
 import adminNotificationRoute from './routes/admin/notification.route';
 import paymentController from './controllers/payment.controller';
+import { FRONTEND_URL } from './config';
+import { configurePassport } from './config/passport';
 
 import cors from "cors";
+import cookieParser from "cookie-parser";
+import passport from "passport";
 import path from "path";
 
 
@@ -24,13 +28,16 @@ import path from "path";
 // dotenv.config();
 
 const app: Application = express();
+configurePassport();
 // const PORT: number = 3000;
 app.use(
   cors({
-    origin: "http://localhost:3000",
+    origin: FRONTEND_URL,
     credentials: true,
   })
 );
+app.use(cookieParser());
+app.use(passport.initialize());
 
 // Stripe webhook needs raw body for signature verification — register before JSON parser
 app.post(
@@ -43,7 +50,6 @@ app.use(express.json());
 
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({extended: true}));
-app.use("/api/users", authRoutes);
 
 
 app.get('/', (req: Request, res: Response) => {

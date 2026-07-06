@@ -1,14 +1,57 @@
 import { AuthService } from "../services/auth.services";
-import { createUserDto, LoginUserDto } from "../dtos/auth.dto";
+import { createUserDto, DisableTwoFactorDto, LoginUserDto, VerifyTwoFactorLoginDto, VerifyTwoFactorSetupDto } from "../dtos/auth.dto";
 import z from "zod";
-import { Request, Response } from "express";
+import { CookieOptions, Request, Response } from "express";
 import { Request as MulterRequest } from "express";
+import { FRONTEND_URL, NODE_ENV } from "../config";
+import { IUser } from "../models/user.model";
 
 
 
 let authservice = new AuthService();
 
+const authCookieOptions: CookieOptions = {
+  httpOnly: true,
+  secure: NODE_ENV === "production",
+  sameSite: NODE_ENV === "production" ? "none" : "lax",
+  maxAge: 30 * 24 * 60 * 60 * 1000,
+};
+
+function removeSensitiveUserFields(user: any) {
+  const userObject = typeof user?.toObject === "function" ? user.toObject() : user;
+  const { password, twoFactorSecret, ...userWithoutSensitiveFields } = userObject;
+  return userWithoutSensitiveFields;
+}
+
 export class AuthController {
+  async googleCallback(req: Request, res: Response) {
+    try {
+      const user = req.user as IUser | undefined;
+
+      if (!user) {
+        return res.redirect(`${FRONTEND_URL}/login?oauth=failed`);
+      }
+
+      const token = authservice.generateLoginToken(user);
+      res.cookie("token", token, authCookieOptions);
+
+      return res.redirect(`${FRONTEND_URL}/auth/success`);
+    } catch (error) {
+      return res.redirect(`${FRONTEND_URL}/login?oauth=failed`);
+    }
+  }
+
+  async getMe(req: Request, res: Response) {
+    if (!req.user) {
+      return res.status(401).json({ success: false, message: "Unauthorized" });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: removeSensitiveUserFields(req.user),
+    });
+  }
+
   async registerUser(req: Request, res: Response) {
     try {
       const parsedData = createUserDto.safeParse(req.body);
@@ -39,14 +82,138 @@ export class AuthController {
         });
       }
 
-      const { token, user } = await authservice.LoginUser(parsedData.data);
-      // Exclude password from response
-      const { password, ...userWithoutPassword } = user.toObject();
+      const result = await authservice.LoginUser(parsedData.data);
+
+      if ("twoFactorRequired" in result && result.twoFactorRequired) {
+        return res.status(200).json({
+          success: true,
+          twoFactorRequired: true,
+          userId: result.userId,
+          email: result.email,
+          message: "Two-factor authentication required",
+        });
+      }
+
+      const { token, user } = result;
+      const userWithoutPassword = removeSensitiveUserFields(user);
+      res.cookie("token", token, authCookieOptions);
       return res.status(200).json({
         success: true,
         data: userWithoutPassword,
         token,
         message: "Login success",
+      });
+    } catch (error: any) {
+      return res.status(error.statusCode || 500).json({
+        success: false,
+        message: error.message || "Internal Server Error",
+      });
+    }
+  }
+
+  async enableTwoFactor(req: Request, res: Response) {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ success: false, message: "Unauthorized" });
+      }
+
+      const result = await authservice.enableTwoFactor((req.user as any)._id.toString());
+
+      return res.status(200).json({
+        success: true,
+        data: result,
+        message: "Scan the QR code and verify OTP to enable 2FA",
+      });
+    } catch (error: any) {
+      return res.status(error.statusCode || 500).json({
+        success: false,
+        message: error.message || "Internal Server Error",
+      });
+    }
+  }
+
+  async verifyTwoFactorSetup(req: Request, res: Response) {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ success: false, message: "Unauthorized" });
+      }
+
+      const parsedData = VerifyTwoFactorSetupDto.safeParse(req.body);
+      if (!parsedData.success) {
+        return res.status(400).json({
+          success: false,
+          message: z.formatError(parsedData.error),
+        });
+      }
+
+      const user = await authservice.verifyTwoFactorSetup(
+        (req.user as any)._id.toString(),
+        parsedData.data.otp
+      );
+
+      return res.status(200).json({
+        success: true,
+        data: removeSensitiveUserFields(user),
+        message: "Two-factor authentication enabled successfully",
+      });
+    } catch (error: any) {
+      return res.status(error.statusCode || 500).json({
+        success: false,
+        message: error.message || "Internal Server Error",
+      });
+    }
+  }
+
+  async verifyTwoFactorLogin(req: Request, res: Response) {
+    try {
+      const parsedData = VerifyTwoFactorLoginDto.safeParse(req.body);
+      if (!parsedData.success) {
+        return res.status(400).json({
+          success: false,
+          message: z.formatError(parsedData.error),
+        });
+      }
+
+      const { token, user } = await authservice.verifyTwoFactorLogin(parsedData.data);
+      res.cookie("token", token, authCookieOptions);
+
+      return res.status(200).json({
+        success: true,
+        data: removeSensitiveUserFields(user),
+        token,
+        message: "Login success",
+      });
+    } catch (error: any) {
+      return res.status(error.statusCode || 500).json({
+        success: false,
+        message: error.message || "Internal Server Error",
+      });
+    }
+  }
+
+  async disableTwoFactor(req: Request, res: Response) {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ success: false, message: "Unauthorized" });
+      }
+
+      const parsedData = DisableTwoFactorDto.safeParse(req.body);
+      if (!parsedData.success) {
+        return res.status(400).json({
+          success: false,
+          message: z.formatError(parsedData.error),
+        });
+      }
+
+      const user = await authservice.disableTwoFactor(
+        (req.user as any)._id.toString(),
+        parsedData.data.password
+      );
+
+      return res.status(200).json({
+        success: true,
+        data: removeSensitiveUserFields(user),
+        message: "Two-factor authentication disabled successfully",
       });
     } catch (error: any) {
       return res.status(error.statusCode || 500).json({
@@ -62,7 +229,7 @@ export class AuthController {
       await authservice.logout();
 
       // Clear cookie if present (no-op if cookies not configured)
-      try { res.clearCookie("token"); } catch (e) {}
+      try { res.clearCookie("token", authCookieOptions); } catch (e) {}
 
       return res.status(200).json({ success: true, message: "Logout successful" });
     } catch (error: any) {

@@ -11,6 +11,9 @@ export class AdminUserService {
                 if(emailExists){ // if instance found, duplicate
                     throw new HttpError(409, "Email already exists");
                 }
+                if(!data.password){
+                    throw new HttpError(400, "Password is required");
+                }
                 // donot save plain text password, hash the password
                 const hashedPassword = await bcryptjs.hash(data.password, 10); // 10 - complexity
                 data.password = hashedPassword; // replace plain text with hashed password
