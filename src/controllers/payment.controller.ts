@@ -36,9 +36,22 @@ if (!stripeSecret || !stripeSecret.startsWith("sk_")) {
 }
 
 const stripe = new Stripe(stripeSecret || "sk_undefined", {} as Stripe.StripeConfig);
+const STRIPE_CURRENCY = "npr";
 
 const resolveItemId = (...sources: Array<Record<string, any> | undefined>) => {
-  const keys = ["productId", "itemId", "item_id", "product_id", "_id"];
+  const keys = [
+    "productId",
+    "productID",
+    "itemId",
+    "itemID",
+    "item_id",
+    "product_id",
+    "listingId",
+    "listing_id",
+    "product",
+    "item",
+    "_id",
+  ];
 
   for (const source of sources) {
     if (!source) continue;
@@ -57,24 +70,32 @@ const resolveItemId = (...sources: Array<Record<string, any> | undefined>) => {
 const markItemAsSoldAfterSuccessfulPayment = async (productId?: string) => {
   if (!productId) return null;
 
-  const item = await ItemModel.findById(productId).lean();
+  const item = await ItemModel.findById(productId);
   if (!item) return null;
 
-  const updateResult = await ItemModel.updateOne(
-    { _id: productId, isSold: { $ne: true } },
-    { $set: { isSold: true, status: "sold" } }
-  );
+  const wasAlreadySold = item.isSold === true && item.status === "sold";
+  item.isSold = true;
+  item.status = "sold";
+  await item.save();
 
-  if (updateResult.modifiedCount > 0) {
-    const sellerId = (item as any).sellerId?.toString();
-    const productName = (item as any).phoneModel || (item as any).itemName || "your item";
+  if (!wasAlreadySold) {
+    const sellerId = item.sellerId?.toString();
+    const productName = item.phoneModel || item.itemName || "your item";
 
     if (sellerId) {
       await NotificationService.notifyProductSold(sellerId, productId, productName);
     }
   }
 
-  return item;
+  return item.toObject();
+};
+
+const isCheckoutSessionPaid = (session: Stripe.Checkout.Session) => {
+  return ["paid", "no_payment_required"].includes(session.payment_status || "");
+};
+
+const isPaymentIntentPaid = (paymentIntent: Stripe.PaymentIntent) => {
+  return paymentIntent.status === "succeeded";
 };
 
 export class PaymentController {
@@ -170,7 +191,7 @@ export class PaymentController {
         paymentConsole.log("Creating PaymentIntent with receipt_email:", buyerEmail, "metadata.email:", mergedMetadata.email);
         const paymentIntent = await stripe.paymentIntents.create({
           amount: amountForStripe,
-          currency: "usd",
+          currency: STRIPE_CURRENCY,
           automatic_payment_methods: { enabled: true },
           receipt_email: buyerEmail,
           metadata: {
@@ -209,7 +230,7 @@ export class PaymentController {
         line_items: [
           {
             price_data: {
-              currency: "usd",
+              currency: STRIPE_CURRENCY,
               product_data: {
                 name: productName || "Product",
                 description: `Order ID: ${orderId || resolvedProductId || "N/A"}`,
@@ -250,6 +271,171 @@ export class PaymentController {
     } catch (error: any) {
       paymentConsole.error("Stripe checkout error:", error);
       return res.status(500).json({ error: error.message || "Failed to create checkout session" });
+    }
+  }
+
+  async confirmStripePayment(req: Request, res: Response) {
+    if (!stripeSecret || !stripeSecret.startsWith("sk_")) {
+      paymentConsole.error("Stripe secret key missing or invalid on confirmStripePayment.");
+      return res.status(500).json({
+        error: "Server misconfigured: STRIPE_SECRET_KEY must be set to Stripe secret key (sk_...).",
+      });
+    }
+
+    try {
+      const body = req.body || {};
+      const requestedItemId = (req.params.itemId || body.itemId || body.productId || req.query.itemId || req.query.productId || "")
+        .toString()
+        .trim();
+      const sessionId = (body.sessionId || req.query.session_id || req.query.sessionId || "")
+        .toString()
+        .trim();
+      const paymentIntentId = (body.paymentIntentId || req.query.payment_intent || req.query.paymentIntentId || "")
+        .toString()
+        .trim();
+
+      if (requestedItemId && !mongoose.Types.ObjectId.isValid(requestedItemId)) {
+        return res.status(400).json({ error: "Valid itemId is required" });
+      }
+
+      if (!sessionId && !paymentIntentId) {
+        return res.status(400).json({ error: "sessionId or paymentIntentId is required" });
+      }
+
+      if (sessionId) {
+        const session = await stripe.checkout.sessions.retrieve(sessionId, {
+          expand: ["payment_intent"],
+        });
+
+        if (!isCheckoutSessionPaid(session)) {
+          return res.status(400).json({
+            error: "Checkout session is not paid yet",
+            paymentStatus: session.payment_status,
+          });
+        }
+
+        const expandedPaymentIntent =
+          typeof session.payment_intent === "object" && session.payment_intent
+            ? (session.payment_intent as Stripe.PaymentIntent)
+            : undefined;
+        const sessionPaymentIntentId =
+          typeof session.payment_intent === "string"
+            ? session.payment_intent
+            : expandedPaymentIntent?.id;
+        const meta = session.metadata || {};
+        const productId = resolveItemId(
+          meta,
+          expandedPaymentIntent?.metadata,
+          { productId: session.client_reference_id || undefined }
+        );
+
+        if (!productId) {
+          return res.status(400).json({ error: "Paid session does not include a valid productId or itemId" });
+        }
+
+        if (
+          requestedItemId &&
+          mongoose.Types.ObjectId.isValid(requestedItemId) &&
+          requestedItemId !== productId
+        ) {
+          return res.status(400).json({ error: "Paid session does not match the requested item" });
+        }
+
+        const itemSnapshot = await markItemAsSoldAfterSuccessfulPayment(productId);
+        if (!itemSnapshot) {
+          return res.status(404).json({ error: "Item not found" });
+        }
+
+        const stripePaymentDoc = {
+          sessionId: session.id,
+          paymentIntentId: sessionPaymentIntentId,
+          amount: session.amount_total ? Number(session.amount_total) / 100 : 0,
+          currency: session.currency || STRIPE_CURRENCY,
+          customerEmail: session.customer_email || expandedPaymentIntent?.receipt_email || meta.email || "",
+          metadata: meta,
+          productId,
+          orderId: (meta.orderId as string) || undefined,
+          buyerName: (meta.buyerName as string) || undefined,
+          buyerPhone: (meta.buyerPhone as string) || undefined,
+          itemSnapshot,
+          status: "completed",
+          raw: session,
+        };
+
+        const matchConditions: any[] = [{ sessionId: session.id }];
+        if (sessionPaymentIntentId) matchConditions.push({ paymentIntentId: sessionPaymentIntentId });
+
+        await StripePaymentModel.findOneAndUpdate(
+          { $or: matchConditions },
+          { $set: stripePaymentDoc },
+          { upsert: true, new: true, setDefaultsOnInsert: true }
+        );
+
+        return res.status(200).json({
+          success: true,
+          item: itemSnapshot,
+          status: "sold",
+          isSold: true,
+        });
+      }
+
+      const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
+      if (!isPaymentIntentPaid(paymentIntent)) {
+        return res.status(400).json({
+          error: "PaymentIntent is not paid yet",
+          paymentStatus: paymentIntent.status,
+        });
+      }
+
+      const meta = paymentIntent.metadata || {};
+      const productId = resolveItemId(meta);
+      if (!productId) {
+        return res.status(400).json({ error: "Paid PaymentIntent does not include a valid productId or itemId" });
+      }
+
+      if (
+        requestedItemId &&
+        mongoose.Types.ObjectId.isValid(requestedItemId) &&
+        requestedItemId !== productId
+      ) {
+        return res.status(400).json({ error: "Paid PaymentIntent does not match the requested item" });
+      }
+
+      const itemSnapshot = await markItemAsSoldAfterSuccessfulPayment(productId);
+      if (!itemSnapshot) {
+        return res.status(404).json({ error: "Item not found" });
+      }
+
+      await StripePaymentModel.findOneAndUpdate(
+        { paymentIntentId: paymentIntent.id },
+        {
+          $set: {
+            paymentIntentId: paymentIntent.id,
+            amount: paymentIntent.amount ? Number(paymentIntent.amount) / 100 : 0,
+            currency: paymentIntent.currency || STRIPE_CURRENCY,
+            customerEmail: paymentIntent.receipt_email || meta.email || "",
+            metadata: meta,
+            productId,
+            orderId: (meta.orderId as string) || undefined,
+            buyerName: (meta.buyerName as string) || undefined,
+            buyerPhone: (meta.buyerPhone as string) || undefined,
+            itemSnapshot,
+            status: "completed",
+            raw: paymentIntent,
+          },
+        },
+        { upsert: true, new: true, setDefaultsOnInsert: true }
+      );
+
+      return res.status(200).json({
+        success: true,
+        item: itemSnapshot,
+        status: "sold",
+        isSold: true,
+      });
+    } catch (error: any) {
+      paymentConsole.error("Stripe payment confirmation error:", error);
+      return res.status(500).json({ error: error.message || "Failed to confirm Stripe payment" });
     }
   }
 
@@ -329,9 +515,17 @@ export class PaymentController {
         return null;
       };
       switch (event.type) {
+        case "checkout.session.async_payment_succeeded":
         case "checkout.session.completed": {
           const session = event.data.object as Stripe.Checkout.Session;
           paymentConsole.log("Checkout session completed:", session.id);
+          if (!isCheckoutSessionPaid(session)) {
+            paymentConsole.warn("Checkout session completed but is not paid yet:", {
+              sessionId: session.id,
+              paymentStatus: session.payment_status,
+            });
+            break;
+          }
           try {
             const sessionPaymentIntentId =
               typeof session.payment_intent === "string" ? session.payment_intent : undefined;
@@ -371,7 +565,7 @@ export class PaymentController {
               sessionId: session.id,
               paymentIntentId: sessionPaymentIntentId,
               amount: session.amount_total ? Number(session.amount_total) / 100 : 0,
-              currency: session.currency || "usd",
+              currency: session.currency || STRIPE_CURRENCY,
               customerEmail: resolvedEmail || session.customer_email || "",
               metadata: meta,
               productId,
@@ -490,7 +684,7 @@ export class PaymentController {
             const upsertDoc: any = {
               paymentIntentId: pi.id,
               amount: pi.amount ? Number(pi.amount) / 100 : 0,
-              currency: pi.currency || "usd",
+              currency: pi.currency || STRIPE_CURRENCY,
               customerEmail: resolvedEmail || (pi.receipt_email as string) || "",
               metadata: meta,
               productId,

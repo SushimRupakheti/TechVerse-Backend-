@@ -115,7 +115,7 @@ describe("Payment routes integration tests", () => {
       return {
         id: `pi_mock_${ts}_${mockPaymentIntentsCreate.mock.calls.length}`,
         client_secret: `pi_secret_${ts}_${mockPaymentIntentsCreate.mock.calls.length}`,
-        currency: payload?.currency || "usd",
+        currency: payload?.currency || "npr",
         receipt_email: payload?.receipt_email,
         metadata: payload?.metadata,
         amount: payload?.amount,
@@ -213,8 +213,9 @@ describe("Payment routes integration tests", () => {
     const res = await request(app)
       .post("/api/payments/stripe/checkout")
       .send({
-        amount: 10,
+        amount: 300,
         productName: "Test Product",
+        productId: itemId,
         orderId: `order_${ts}`,
         buyerEmail: "buyer@example.com",
       });
@@ -225,11 +226,14 @@ describe("Payment routes integration tests", () => {
     expect(typeof res.body.sessionId).toBe("string");
     expect(typeof res.body.url).toBe("string");
     expect(mockCheckoutSessionsCreate).toHaveBeenCalledTimes(1);
+    const payload = mockCheckoutSessionsCreate.mock.calls[0][0];
+    expect(payload.line_items[0].price_data.currency).toBe("npr");
   });
 
   test("3) checkout session includes customer_email and metadata.email", async () => {
     await request(app).post("/api/payments/stripe/checkout").send({
-      amount: 15,
+      amount: 300,
+      productId: itemId,
       orderId: `order_meta_${ts}`,
       buyerEmail: "meta@example.com",
       metadata: { foo: "bar" },
@@ -249,20 +253,23 @@ describe("Payment routes integration tests", () => {
       .post("/api/payments/stripe/checkout")
       .send({
         flow: "payment_intent",
-        amount: 12,
+        amount: 300,
+        productId: itemId,
         buyerEmail: "pi@example.com",
       });
 
     expect(res.status).toBe(200);
     expect(res.body).toHaveProperty("clientSecret");
     expect(res.body).toHaveProperty("publishableKey", "pk_test_dummy");
+    expect(res.body).toHaveProperty("currency", "npr");
     expect(mockPaymentIntentsCreate).toHaveBeenCalledTimes(1);
   });
 
   test("5) payment_intent includes receipt_email and metadata.email", async () => {
     await request(app).post("/api/payments/stripe/checkout").send({
       flow: "payment_intent",
-      amount: 30,
+      amount: 300,
+      productId: itemId,
       buyerEmail: "receipt@example.com",
       metadata: { a: "b" },
     });
@@ -271,6 +278,7 @@ describe("Payment routes integration tests", () => {
     const payload = mockPaymentIntentsCreate.mock.calls[0][0];
 
     expect(payload).toHaveProperty("receipt_email", "receipt@example.com");
+    expect(payload).toHaveProperty("currency", "npr");
     expect(payload).toHaveProperty("metadata");
     expect(payload.metadata).toHaveProperty("a", "b");
     expect(payload.metadata).toHaveProperty("email", "receipt@example.com");
@@ -301,7 +309,7 @@ describe("Payment routes integration tests", () => {
           id: webhookSessionId,
           object: "checkout.session",
           amount_total: 2000,
-          currency: "usd",
+          currency: "npr",
           customer_email: "buyer-webhook@example.com",
           payment_intent: webhookPaymentIntentId,
           metadata: {
@@ -337,6 +345,7 @@ describe("Payment routes integration tests", () => {
       sessionId: webhookSessionId,
     }).lean();
     expect(stripeDoc).not.toBeNull();
+    expect(stripeDoc?.currency).toBe("npr");
 
     const legacyDoc = await PaymentModel.findOne({ refId: webhookRefId }).lean();
     expect(legacyDoc).not.toBeNull();
@@ -363,7 +372,7 @@ describe("Payment routes integration tests", () => {
           id: webhookSessionId,
           object: "checkout.session",
           amount_total: 2000,
-          currency: "usd",
+          currency: "npr",
           customer_email: "buyer-webhook@example.com",
           payment_intent: webhookPaymentIntentId,
           metadata: {
