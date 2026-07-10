@@ -1,5 +1,34 @@
 # tech verse API
 
+
+## Security approach summary
+
+This backend applies defense-in-depth across authentication, authorization, input validation, file uploads, stored content, and HTTP headers.
+
+Implemented security controls:
+
+- Authentication and session handling: protected routes require valid JWT authentication, token format is checked, and invalid tokens return generic unauthorized responses.
+- Role and privilege protection: public signup cannot set `role`, public users are created as `customer`, admin creation is separated, and profile updates cannot escalate privileges.
+- Rate limiting: login is limited to `10` attempts per `15 minutes`; signup, password reset, payment, and upload routes also have dedicated rate limiters.
+- NoSQL injection protection: auth input uses strict Zod schemas, email is normalized, and user lookup uses exact `$eq` matching to block Mongo operator injection.
+- Product XSS protection: product text is validated and sanitized before MongoDB storage; HTML tags, script tags, event handlers, and dangerous protocols are stripped.
+- Admin dashboard safety: pending seller-created product data is sanitized before admins view or update it.
+- Secure image uploads: authenticated uploads only, strict MIME and magic-byte validation, 5 MB/image, max 5 images, UUID filenames, private storage, and no public static upload directory.
+- Security headers: Helmet adds Content Security Policy, `X-Content-Type-Options: nosniff`, and `X-Frame-Options: DENY`.
+- Generic errors and audit logging: upload failures return safe client messages while rejection reasons are logged server-side.
+- Tests: Jest/Supertest coverage verifies XSS sanitization, safe MongoDB storage, CRUD response preservation, Helmet headers, and password strength validation.
+
+## Password strength for user creation
+
+Signup and reset-password flows now require strong passwords. This applies during public signup, admin-created users, and password reset from the reset password page:
+
+- At least `8` characters
+- At least one uppercase letter
+- At least one number
+- At least one special character
+
+This is enforced in `src/dtos/auth.dto.ts` through `strongPasswordSchema`, `PublicRegisterUserDto`, `createUserDto`, and `ResetPasswordDto`. The reset endpoint `POST /api/auth/reset-password/:token` validates `newPassword` in `src/controllers/auth.controller.ts` before hashing and storing it. Login validation is intentionally not tightened beyond basic string length so existing accounts can still authenticate.
+
 ## Login and signup injection protection
 
 The API uses MongoDB through Mongoose, so the main risk for the auth flow is NoSQL query injection rather than classic SQL injection.
@@ -9,7 +38,7 @@ We hardened login and signup in these files:
 - `src/dtos/auth.dto.ts`
   - `createUserDto` and `LoginUserDto` now require strict Zod objects.
   - Email values must be real email strings, are trimmed, and are normalized to lowercase.
-  - Password values must be strings with at least 6 characters.
+  - New user passwords and reset passwords must be at least 8 characters and include one uppercase letter, one number, and one special character.
   - Extra request body keys are rejected, so payloads cannot smuggle unexpected query fields into the auth flow.
 
 - `src/repositories/auth.repository.ts`
@@ -36,7 +65,7 @@ Example rejected public signup request:
   "email": "try123@g.com",
   "contactNo": "9987654321",
   "address": "ktm",
-  "password": "password",
+  "password": "Password123!",
   "role": "admin"
 }
 ```

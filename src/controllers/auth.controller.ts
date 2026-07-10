@@ -1,5 +1,5 @@
 import { AuthService } from "../services/auth.services";
-import { DisableTwoFactorDto, LoginUserDto, PublicRegisterUserDto, UpdateProfileDto, VerifyTwoFactorLoginDto, VerifyTwoFactorSetupDto } from "../dtos/auth.dto";
+import { DisableTwoFactorDto, LoginUserDto, PublicRegisterUserDto, ResetPasswordDto, UpdateProfileDto, VerifyTwoFactorLoginDto, VerifyTwoFactorSetupDto } from "../dtos/auth.dto";
 import z from "zod";
 import { CookieOptions, Request, Response } from "express";
 import { FRONTEND_URL, NODE_ENV } from "../config";
@@ -322,9 +322,15 @@ export class AuthController {
  async resetPassword(req: Request, res: Response) {
   try {
     const token = req.params.token;
-    const { newPassword } = req.body;
+    const parsedData = ResetPasswordDto.safeParse(req.body);
+    if (!parsedData.success) {
+      return res.status(400).json({
+        success: false,
+        message: z.prettifyError(parsedData.error),
+      });
+    }
 
-    const result = await authservice.resetPassword(token, newPassword);
+    const result = await authservice.resetPassword(token, parsedData.data.newPassword);
 
     return res.status(200).json({
       success: true,

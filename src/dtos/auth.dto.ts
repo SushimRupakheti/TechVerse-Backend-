@@ -1,6 +1,13 @@
 import z from 'zod';
 import { userSchema } from '../types/user.type';
 
+export const strongPasswordSchema = z
+  .string()
+  .min(8, "Password must be at least 8 characters long")
+  .regex(/[A-Z]/, "Password must contain at least one uppercase letter")
+  .regex(/\d/, "Password must contain at least one number")
+  .regex(/[^A-Za-z0-9]/, "Password must contain at least one special character");
+
 const registerUserBaseDto = userSchema.pick(
     {
 
@@ -13,19 +20,10 @@ const registerUserBaseDto = userSchema.pick(
     }
 ).strict().extend({
     email: z.email().trim().toLowerCase(),
-    password: z.string().min(6),
+    password: strongPasswordSchema,
 });
 
-export const PublicRegisterUserDto = registerUserBaseDto.superRefine((data, ctx) => {
-    // password validation
-    if (!data.password || data.password.length < 6) {
-      ctx.addIssue({
-        path: ['password'],
-        message: 'Password must be at least 6 characters long',
-        code: z.ZodIssueCode.custom,
-      });
-    }
-  });
+export const PublicRegisterUserDto = registerUserBaseDto;
 
 export type PublicRegisterUserDto = z.infer<typeof PublicRegisterUserDto>;
 
@@ -40,6 +38,12 @@ export const LoginUserDto = z.object({
     password: z.string().min(6)
 }).strict();
 export type LoginUserDto = z.infer<typeof LoginUserDto>;
+
+export const ResetPasswordDto = z.object({
+  newPassword: strongPasswordSchema,
+}).strict();
+
+export type ResetPasswordDto = z.infer<typeof ResetPasswordDto>;
 
 export const VerifyTwoFactorSetupDto = z.object({
   otp: z.string().regex(/^\d{6}$/, "OTP must be a 6-digit code"),

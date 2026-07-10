@@ -11,7 +11,7 @@ describe(
         "email":"testuser123@gmail.com",
         "contactNo":"9987654321",
         "address":"testAddress",
-        "password":"password",
+        "password":"Password123!",
     }
         beforeAll(async () => {
             // Clean up test user if exists
@@ -56,6 +56,30 @@ describe(
                     }
                 )
 
+                test("should reject weak signup password without a special character", async () => {
+                    const response = await request(app)
+                        .post("/api/auth/register")
+                        .send({
+                            ...testUser,
+                            email: "weakpassword123@gmail.com",
+                            password: "Password123",
+                        });
+
+                    expect(response.status).toBe(400);
+                    expect(response.body).toHaveProperty("message");
+                    expect(response.body.success).toBe(false);
+                });
+                describe("POST /api/auth/reset-password/:token", () => {
+                    test("should reject weak reset password without a special character", async () => {
+                        const res = await request(app)
+                            .post("/api/auth/reset-password/fake-token")
+                            .send({ newPassword: "Password123" });
+
+                        expect(res.status).toBe(400);
+                        expect(res.body).toHaveProperty("message");
+                        expect(res.body.success).toBe(false);
+                    });
+                });
                 describe("POST /api/auth/login", () => {
                     test("should login registered user", async () => {
                         const res = await request(app)
@@ -81,7 +105,7 @@ describe(
                     test("should return 404 for non-existent email", async () => {
                         const res = await request(app)
                             .post("/api/auth/login")
-                            .send({ email: "noone_exists_123@example.com", password: "password" });
+                            .send({ email: "noone_exists_123@example.com", password: "Password123!" });
 
                         expect(res.status).toBe(404);
                         expect(res.body).toHaveProperty("message", "user not found");
@@ -90,7 +114,7 @@ describe(
                     test("should return 400 for invalid email format", async () => {
                         const res = await request(app)
                             .post("/api/auth/login")
-                            .send({ email: "bad-email-format", password: "password" });
+                            .send({ email: "bad-email-format", password: "Password123!" });
 
                         expect(res.status).toBe(400);
                         expect(res.body).toHaveProperty("message");
