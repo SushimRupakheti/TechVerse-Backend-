@@ -135,6 +135,10 @@ export class PaymentController {
         time,
         oid,
         refId,
+        successUrl,
+        cancelUrl,
+        success_url,
+        cancel_url,
         metadata = {},
         flow,
       } = req.body;
@@ -147,6 +151,14 @@ export class PaymentController {
         (req.headers.origin as string) ||
         process.env.NEXT_PUBLIC_APP_ORIGIN ||
         "http://localhost:3000";
+      const successRedirectUrl =
+        successUrl ||
+        success_url ||
+        `${origin}/stripe/success?session_id={CHECKOUT_SESSION_ID}`;
+      const cancelRedirectUrl =
+        cancelUrl ||
+        cancel_url ||
+        `${origin}/stripe/cancel?order_id=${encodeURIComponent(orderId || resolvedProductId || "")}`;
 
       const amountNum = Number(amount || price || 0);
       if (!amountNum || amountNum <= 0) {
@@ -215,6 +227,26 @@ export class PaymentController {
           },
         });
 
+        await StripePaymentModel.findOneAndUpdate(
+          { paymentIntentId: paymentIntent.id },
+          {
+            $set: {
+              paymentIntentId: paymentIntent.id,
+              amount: amountNum,
+              currency: paymentIntent.currency || STRIPE_CURRENCY,
+              customerEmail: buyerEmail || "",
+              metadata: paymentIntent.metadata || {},
+              productId: resolvedProductId,
+              orderId: orderId || "",
+              buyerName: buyerName || "",
+              buyerPhone: buyerPhone || "",
+              status: "pending",
+              raw: paymentIntent,
+            },
+          },
+          { upsert: true, new: true, setDefaultsOnInsert: true }
+        );
+
         paymentConsole.log("Created PaymentIntent:", { id: paymentIntent.id, receipt_email: paymentIntent.receipt_email });
         return res.status(200).json({
           clientSecret: paymentIntent.client_secret,
@@ -241,8 +273,8 @@ export class PaymentController {
           },
         ],
         mode: "payment",
-        success_url: `${origin}/stripe/success?session_id={CHECKOUT_SESSION_ID}`,
-        cancel_url: `${origin}/stripe/cancel?order_id=${encodeURIComponent(orderId || resolvedProductId || "")}`,
+        success_url: successRedirectUrl,
+        cancel_url: cancelRedirectUrl,
         client_reference_id: resolvedProductId,
         customer_email: buyerEmail || undefined,
         metadata: {
@@ -265,6 +297,26 @@ export class PaymentController {
           itemId: resolvedProductId || "",
         },
       });
+
+      await StripePaymentModel.findOneAndUpdate(
+        { sessionId: session.id },
+        {
+          $set: {
+            sessionId: session.id,
+            amount: amountNum,
+            currency: session.currency || STRIPE_CURRENCY,
+            customerEmail: buyerEmail || "",
+            metadata: session.metadata || {},
+            productId: resolvedProductId,
+            orderId: orderId || "",
+            buyerName: buyerName || "",
+            buyerPhone: buyerPhone || "",
+            status: "pending",
+            raw: session,
+          },
+        },
+        { upsert: true, new: true, setDefaultsOnInsert: true }
+      );
 
       paymentConsole.log("Created Checkout Session:", { id: session.id, customer_email: session.customer_email });
       return res.status(200).json({ sessionId: session.id, url: session.url });

@@ -20,7 +20,12 @@ export class UserRepository implements IUserRepository{
         return newUser;
     }
     async getUserByEmail(email: string){
-        const user = await UserModel.findOne({ "email": email });
+        if (typeof email !== "string") {
+            return null;
+        }
+
+        const normalizedEmail = email.trim().toLowerCase();
+        const user = await UserModel.findOne({ email: { $eq: normalizedEmail } });
         return user;
     }
 
