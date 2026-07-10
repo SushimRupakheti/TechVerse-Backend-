@@ -1,7 +1,7 @@
 import z from 'zod';
 import { userSchema } from '../types/user.type';
 
-export const createUserDto = userSchema.pick(
+const registerUserBaseDto = userSchema.pick(
     {
 
         firstName: true,
@@ -10,13 +10,13 @@ export const createUserDto = userSchema.pick(
         contactNo: true,
         address: true,
         password: true,
-        role: true,
-        authProvider: true,
     }
 ).strict().extend({
     email: z.email().trim().toLowerCase(),
     password: z.string().min(6),
-}).superRefine((data, ctx) => {
+});
+
+export const PublicRegisterUserDto = registerUserBaseDto.superRefine((data, ctx) => {
     // password validation
     if (!data.password || data.password.length < 6) {
       ctx.addIssue({
@@ -27,6 +27,12 @@ export const createUserDto = userSchema.pick(
     }
   });
 
+export type PublicRegisterUserDto = z.infer<typeof PublicRegisterUserDto>;
+
+export const createUserDto = registerUserBaseDto.extend({
+    role: z.enum(["customer", "user", "admin"]).default("customer"),
+    authProvider: z.enum(["local", "google"]).default("local"),
+});
 export type createUserDto = z.infer<typeof createUserDto>;
 
 export const LoginUserDto = z.object({

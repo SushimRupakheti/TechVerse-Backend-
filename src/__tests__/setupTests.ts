@@ -9,7 +9,7 @@ beforeAll(async () => {
 
     // If you want full isolation from your dev DB, set:
     //   MONGO_URI_TEST=mongodb://127.0.0.1:27017/<your_test_db>
-    const { connectDB } = await import("../database/mongodb.js");
+    const { connectDB } = require("../database/mongodb");
     await connectDB();
 });
 

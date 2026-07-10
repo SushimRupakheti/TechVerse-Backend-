@@ -1,5 +1,5 @@
 import { ItemModel } from "../models/item.model";
-import { CreateItemDTO } from "../dtos/item.dto";
+import { CreateItemDTO, UpdateItemDTO } from "../dtos/item.dto";
 import { HttpError } from "../errors/http-error";
 
 export class ItemService {
@@ -32,7 +32,7 @@ export class ItemService {
       .sort({ createdAt: -1 });
   }
 
-  async updateItem(itemId: string, userId: string, data: Partial<CreateItemDTO>) {
+  async updateItem(itemId: string, userId: string, data: UpdateItemDTO) {
     const item = await ItemModel.findById(itemId);
     if (!item) throw new HttpError(404, "Item not found");
 

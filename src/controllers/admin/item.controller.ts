@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import { ItemModel } from "../../models/item.model";
 import mongoose from "mongoose";
 import { NotificationService } from "../../services/notification.service";
+import { AdminUpdateItemDto } from "../../dtos/item.dto";
 
 export class AdminItemController {
   async getAllItems(req: Request, res: Response) {
@@ -66,12 +67,20 @@ export class AdminItemController {
         return res.status(400).json({ success: false, message: "Invalid item id" });
       }
 
-      const updated = await ItemModel.findByIdAndUpdate(itemid, req.body as any, { new: true });
+      const parsed = AdminUpdateItemDto.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({
+          success: false,
+          message: parsed.error.issues[0]?.message || "Invalid item data",
+        });
+      }
+
+      const updated = await ItemModel.findByIdAndUpdate(itemid, parsed.data as any, { new: true });
 
       if (!updated) return res.status(404).json({ success: false, message: "Item not found" });
 
       // ── Auto-trigger notification if status was changed via generic update ──
-      const bodyStatus = (req.body as any)?.status;
+      const bodyStatus = parsed.data.status;
       if (bodyStatus && updated.sellerId) {
         const sellerIdStr = updated.sellerId.toString();
         const productName = (updated as any).phoneModel || "your item";

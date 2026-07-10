@@ -2,12 +2,14 @@ import {createUserDto} from "../../dtos/auth.dto"
 import z from "zod";
 import {Request,Response} from "express";
 import { AuthService } from "../../services/auth.services";
+import { AdminUserService } from "../../services/admin/user.services";
 import mongoose from "mongoose";
 import { UserModel } from "../../models/user.model"; 
 
 
 
 let authservice= new AuthService();
+let adminUserService = new AdminUserService();
 
 export class AdminUserController{
     async createUser(req: Request,res:Response){
@@ -20,7 +22,7 @@ export class AdminUserController{
                 )
             }
 
-            const newUser = await authservice.registerUser(parsedData.data);
+            const newUser = await adminUserService.createUser(parsedData.data);
             return res.status(201).json(
                 {success: true, data: newUser, message: "Registered Success"}
             )

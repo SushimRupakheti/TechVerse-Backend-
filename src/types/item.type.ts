@@ -13,6 +13,7 @@ export type ItemType = {
   year: number;
   deviceCondition: string;
   description: string;
+  location?: string;
 
   isSold?: boolean;
   status?: "pending" | "approved" | "rejected" | "sold";

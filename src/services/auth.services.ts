@@ -1,5 +1,5 @@
 import { UserRepository } from "../repositories/auth.repository";
-import { createUserDto, LoginUserDto } from "../dtos/auth.dto";
+import { createUserDto, LoginUserDto, PublicRegisterUserDto } from "../dtos/auth.dto";
 import bycryptjs from "bcryptjs"
 import { HttpError } from "../errors/http-error";
 import { CLIENT_URL, JWT_SECRET } from "../config";
@@ -25,7 +25,7 @@ generateLoginToken(user: IUser) {
     return jwt.sign(payload,JWT_SECRET,{expiresIn:'30d'});
 }
 
-async registerUser(data:createUserDto){
+async registerUser(data:PublicRegisterUserDto){
     //logic to register user,duplicate check, hash
     const emailExists =await userRepository.getUserByEmail(data.email);
     if(emailExists){
@@ -37,9 +37,12 @@ async registerUser(data:createUserDto){
 
     //donot save plain text password, hash the pass
     const hashedPassword = await bycryptjs.hash(data.password,10);   //complexity
-    data.password =hashedPassword;  //replace plain text with hashed password
-    data.authProvider = "local";
-    const newUser = await userRepository.createUser(data);
+    const newUser = await userRepository.createUser({
+        ...data,
+        password: hashedPassword,
+        authProvider: "local",
+        role: "customer",
+    });
     return newUser
 
 
@@ -201,23 +204,6 @@ async updateUser(userId:string, data:Partial<createUserDto>){
 }
 
 
-async updateProfileImage(userId: string, imagePath: string) {
-  if(!mongoose.Types.ObjectId.isValid(userId)){
-    throw new HttpError(400,"Invalid user id");
-  }
-
-  const user = await UserModel.findByIdAndUpdate(
-    userId,
-    { profileImage: imagePath },
-    { new: true }
-  );
-
-  if (!user) {
-    throw new Error("User not found");
-  }
-
-  return user;
-}
 
 async getUserById(userId: string) {
     if(!mongoose.Types.ObjectId.isValid(userId)){

@@ -1,7 +1,6 @@
 import { NextFunction, Request, Response, Router } from "express";
 import passport from "passport";
 import { AuthController } from "../controllers/auth.controller";
-import { upload } from "../middlewares/upload-profile";
 import { authorizedMiddleWare } from "../middlewares/authorized.middleware";
 import {
   forgotPasswordRateLimiter,
@@ -62,9 +61,7 @@ router.post('/2fa/disable', authorizedMiddleWare, authController.disableTwoFacto
 router.post('/logout', authController.logoutUser);
 router.post("/request-password-reset", forgotPasswordRateLimiter, authController.sendResetPasswordEmail);
 router.post("/reset-password/:token", resetPasswordRateLimiter, authController.resetPassword);
-router.put(/^\/update\/([0-9a-fA-F]{24})$/, setObjectIdParam, authController.updateUser);
-// router.post("/:id/profile-picture", authController.uploadProfilePicture);
-router.post(/^\/([0-9a-fA-F]{24})\/profile-picture$/, setObjectIdParam, upload.single("profileImage"), authController.uploadProfilePicture);
+router.put(/^\/update\/([0-9a-fA-F]{24})$/, authorizedMiddleWare, setObjectIdParam, authController.updateUser);
 router.get(/^\/([0-9a-fA-F]{24})$/, setObjectIdParam, authController.getUserById);
 
 export default router;

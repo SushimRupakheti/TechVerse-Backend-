@@ -1,8 +1,7 @@
 import { AuthService } from "../services/auth.services";
-import { createUserDto, DisableTwoFactorDto, LoginUserDto, VerifyTwoFactorLoginDto, VerifyTwoFactorSetupDto } from "../dtos/auth.dto";
+import { DisableTwoFactorDto, LoginUserDto, PublicRegisterUserDto, UpdateProfileDto, VerifyTwoFactorLoginDto, VerifyTwoFactorSetupDto } from "../dtos/auth.dto";
 import z from "zod";
 import { CookieOptions, Request, Response } from "express";
-import { Request as MulterRequest } from "express";
 import { FRONTEND_URL, NODE_ENV } from "../config";
 import { IUser } from "../models/user.model";
 
@@ -54,7 +53,14 @@ export class AuthController {
 
   async registerUser(req: Request, res: Response) {
     try {
-      const parsedData = createUserDto.safeParse(req.body);
+      if (req.body && Object.prototype.hasOwnProperty.call(req.body, "role")) {
+        return res.status(400).json({
+          success: false,
+          message: "Role cannot be set during public signup.",
+        });
+      }
+
+      const parsedData = PublicRegisterUserDto.safeParse(req.body);
       if (!parsedData.success) {
         return res.status(400).json(
           { success: false, message: z.prettifyError(parsedData.error) }
@@ -240,11 +246,31 @@ export class AuthController {
     }
   }
 
+
   async updateUser(req: Request, res: Response) {
     try {
       const userId = req.params.id;
-      const updateData = req.body;
-      const updatedUser = await authservice.updateUser(userId, updateData);
+      const currentUser = req.user as any;
+      const currentUserId = currentUser?._id?.toString();
+      const currentUserRole = currentUser?.role;
+
+      if (!currentUserId) {
+        return res.status(401).json({ success: false, message: "Unauthorized" });
+      }
+
+      if (currentUserId !== userId && currentUserRole !== "admin") {
+        return res.status(403).json({ success: false, message: "Forbidden" });
+      }
+
+      const parsedData = UpdateProfileDto.safeParse(req.body);
+      if (!parsedData.success) {
+        return res.status(400).json({
+          success: false,
+          message: z.prettifyError(parsedData.error),
+        });
+      }
+
+      const updatedUser = await authservice.updateUser(userId, parsedData.data);
       return res.status(200).json({
         success: true,
         data: updatedUser,
@@ -272,28 +298,6 @@ export class AuthController {
   }
 
 
-  async uploadProfilePicture(req: Request, res: Response) {
-    try {
-      const userId = req.params.id;
-
-      const file = req.file as Express.Multer.File;
-      if (!file) {
-        return res.status(400).json({ success: false, message: "No file uploaded" });
-      }
-
-      const profileImagePath = `/uploads/${file.filename}`;
-
-      const updatedUser = await authservice.updateProfileImage(userId, profileImagePath);
-
-      return res.status(200).json({
-        success: true,
-        data: updatedUser,
-        message: "Profile picture uploaded successfully",
-      });
-    } catch (error: any) {
-      return res.status(500).json({ success: false, message: error.message });
-    }
-  }
   async sendResetPasswordEmail(req: Request, res: Response) {
     try {
       const { email } = req.body;

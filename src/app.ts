@@ -1,4 +1,5 @@
 import express , { Application, Request, Response } from 'express';
+import helmet from "helmet";
 
 import { connectDB } from './database/mongodb';
 import bodyParser from 'body-parser';
@@ -12,6 +13,7 @@ import itemRoutes from './routes/item.route';
 import paymentRoutes from './routes/payment.route';
 import cartRoutes from './routes/cart.route';
 import notificationRoutes from './routes/notification.route';
+import uploadRoutes from './routes/upload.route';
 import adminNotificationRoute from './routes/admin/notification.route';
 import paymentController from './controllers/payment.controller';
 import { FRONTEND_URL } from './config';
@@ -28,6 +30,22 @@ import path from "path";
 // dotenv.config();
 
 const app: Application = express();
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'"],
+        objectSrc: ["'none'"],
+        baseUri: ["'self'"],
+        frameAncestors: ["'none'"],
+        imgSrc: ["'self'", "data:"],
+      },
+    },
+    frameguard: { action: "deny" },
+    noSniff: true,
+  })
+);
 configurePassport();
 // const PORT: number = 3000;
 app.use(
@@ -56,21 +74,42 @@ app.get('/', (req: Request, res: Response) => {
     res.send('Hello, World!');
 });
 
+const LEGACY_UPLOAD_ROOT = path.resolve(process.cwd(), "uploads");
+const SAFE_LEGACY_IMAGE_NAME = /^[a-zA-Z0-9][a-zA-Z0-9._ -]*\.(jpg|jpeg|png|webp|avif)$/i;
+
+app.get("/uploads/:fileName", (req: Request, res: Response) => {
+    const fileName = path.basename(req.params.fileName || "");
+    if (!SAFE_LEGACY_IMAGE_NAME.test(fileName)) {
+        return res.status(404).send("Not found");
+    }
+
+    const filePath = path.join(LEGACY_UPLOAD_ROOT, fileName);
+    if (!filePath.startsWith(LEGACY_UPLOAD_ROOT)) {
+        return res.status(404).send("Not found");
+    }
+
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    return res.sendFile(filePath, (error) => {
+        if (error && !res.headersSent) {
+            res.status(404).send("Not found");
+        }
+    });
+});
+
  
 app.use('/api/auth', authRoutes);
 app.use('/api/admin/users', adminUserRoute);
 app.use('/api/admin/items', adminItemRoute);
 app.use('/api/admin/payments', adminPaymentRoute);
 app.use('/api/admin/notifications', adminNotificationRoute);
-app.use("/uploads", express.static("uploads"));
 
 app.use("/api/items", itemRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use("/api/cart", cartRoutes);
 app.use("/api/notifications", notificationRoutes);
+app.use("/api/uploads", uploadRoutes);
 
 
-app.use("/uploads", express.static(path.join(__dirname, "../itemPhotoUploads")));
 
 app.get('/api/test', (req, res) => {
   res.status(200).json({ message: 'API working' });

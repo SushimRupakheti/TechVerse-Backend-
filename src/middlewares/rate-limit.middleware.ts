@@ -60,3 +60,10 @@ export const paymentRateLimiter = createRateLimiter({
   identifier: "payment",
   message: "Too many payment requests. Please try again later.",
 });
+
+export const uploadRateLimiter = createRateLimiter({
+  windowMs: 15 * 60 * 1000,
+  limit: 20,
+  identifier: "image-upload",
+  message: "Too many upload attempts. Please try again later.",
+});

@@ -54,6 +54,10 @@ const itemSchema: Schema = new Schema(
       required: true,
     },
 
+    location: {
+      type: String,
+    },
+
     isSold: {
       type: Boolean,
       default: false,

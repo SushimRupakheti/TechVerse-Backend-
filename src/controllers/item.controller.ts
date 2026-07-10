@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
 import { ItemService } from "../services/item.services";
 import { HttpError } from "../errors/http-error";
-import { CreateItemDto } from "../dtos/item.dto";
+import { CreateItemDto, UpdateItemDto } from "../dtos/item.dto";
 
 
 
@@ -100,7 +100,15 @@ export class ItemController {
       const itemId = req.params.id;
       const userId = req.user._id.toString();
 
-      const updatedItem = await this.itemService.updateItem(itemId, userId, req.body);
+      const parsed = UpdateItemDto.safeParse(req.body);
+      if (!parsed.success) {
+        throw new HttpError(
+          400,
+          parsed.error.issues[0]?.message || "Invalid item data"
+        );
+      }
+
+      const updatedItem = await this.itemService.updateItem(itemId, userId, parsed.data);
 
       return res.status(200).json({ success: true, item: updatedItem });
     } catch (err: any) {

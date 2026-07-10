@@ -206,24 +206,4 @@ describe("AuthService unit tests", () => {
       message: "Invalid or expired token",
     });
   });
-
-  test("12) updateProfileImage throws when user is not found", async () => {
-    jest
-      .spyOn(UserModel, "findByIdAndUpdate")
-      .mockResolvedValue(null as any);
-
-    await expect(service.updateProfileImage(userId.toString(), "/uploads/x.png")).rejects.toMatchObject({
-      message: "User not found",
-    });
-  });
-
-  test("13) updateProfileImage returns updated user", async () => {
-    const updated = { _id: userId, profileImage: "/uploads/x.png" } as any;
-    jest
-      .spyOn(UserModel, "findByIdAndUpdate")
-      .mockResolvedValue(updated as any);
-
-    const res = await service.updateProfileImage(userId.toString(), "/uploads/x.png");
-    expect(res).toBe(updated);
-  });
 });
