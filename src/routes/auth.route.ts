@@ -9,6 +9,7 @@ import {
   signupRateLimiter,
 } from "../middlewares/rate-limit.middleware";
 import { FRONTEND_URL, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET } from "../config";
+import { failedLoginBlocker } from "../middlewares/failed-login.middleware";
 
 const router: Router = Router();
 const authController = new AuthController();
@@ -53,7 +54,7 @@ router.get(
 
 router.get("/me", authorizedMiddleWare, authController.getMe);
 router.post('/register', signupRateLimiter, authController.registerUser);
-router.post('/login', loginRateLimiter, authController.loginUser);
+router.post('/login', failedLoginBlocker, loginRateLimiter, authController.loginUser);
 router.post('/2fa/enable', authorizedMiddleWare, authController.enableTwoFactor);
 router.post('/2fa/verify-setup', authorizedMiddleWare, authController.verifyTwoFactorSetup);
 router.post('/verify-2fa', authController.verifyTwoFactorLogin);

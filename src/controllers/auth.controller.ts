@@ -4,6 +4,7 @@ import z from "zod";
 import { CookieOptions, Request, Response } from "express";
 import { FRONTEND_URL, NODE_ENV } from "../config";
 import { IUser } from "../models/user.model";
+import { clearFailedLogins, recordFailedLogin } from "../middlewares/failed-login.middleware";
 
 
 
@@ -90,6 +91,8 @@ export class AuthController {
 
       const result = await authservice.LoginUser(parsedData.data);
 
+      clearFailedLogins(req);
+
       if ("twoFactorRequired" in result && result.twoFactorRequired) {
         return res.status(200).json({
           success: true,
@@ -110,6 +113,13 @@ export class AuthController {
         message: "Login success",
       });
     } catch (error: any) {
+      if (
+        error?.message === "user not found" ||
+        error?.message === "Invalid password" ||
+        error?.message === "Please sign in with Google for this account"
+      ) {
+        recordFailedLogin(req);
+      }
       return res.status(error.statusCode || 500).json({
         success: false,
         message: error.message || "Internal Server Error",
