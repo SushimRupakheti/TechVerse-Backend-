@@ -11,6 +11,8 @@ export const userSchema=z.object({
     authProvider: z.enum(["local", "google"]).default("local"),
     role: z.enum(["customer", "user", "admin"]).default("customer"),
     profileImage: z.string().nullable().optional(),
+    isVerified: z.boolean().default(false).optional(),
+    emailVerifiedAt: z.date().nullable().optional(),
     twoFactorEnabled: z.boolean().default(false).optional(),
     twoFactorSecret: z.string().nullable().optional(),
 });

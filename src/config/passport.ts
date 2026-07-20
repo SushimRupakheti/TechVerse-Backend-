@@ -36,7 +36,13 @@ export const configurePassport = () => {
             }
 
             if (!existingUser.authProvider) {
-              existingUser.authProvider = "local";
+                existingUser.authProvider = "local";
+            }
+
+            // Google has already verified ownership of the returned email.
+            if (!existingUser.isVerified) {
+              existingUser.isVerified = true;
+              existingUser.emailVerifiedAt = new Date();
             }
 
             await existingUser.save();
@@ -55,6 +61,8 @@ export const configurePassport = () => {
             authProvider: "google",
             role: "customer",
             profileImage: profile.photos?.[0]?.value || null,
+            isVerified: true,
+            emailVerifiedAt: new Date(),
           });
 
           return done(null, newUser);

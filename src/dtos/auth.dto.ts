@@ -39,6 +39,12 @@ export const LoginUserDto = z.object({
 }).strict();
 export type LoginUserDto = z.infer<typeof LoginUserDto>;
 
+export const ResendVerificationDto = z.object({
+  email: z.email().trim().toLowerCase(),
+}).strict();
+
+export type ResendVerificationDto = z.infer<typeof ResendVerificationDto>;
+
 export const ResetPasswordDto = z.object({
   newPassword: strongPasswordSchema,
 }).strict();

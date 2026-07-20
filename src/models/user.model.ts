@@ -28,6 +28,8 @@ const userSchema: Schema = new Schema(
             authProvider:{type:String,enum:["local","google"],default:"local"},
             role: { type: String, enum: ["admin", "user", "customer"], default: "customer" },
             profileImage: { type: String,default: null},
+            isVerified: { type: Boolean, default: false },
+            emailVerifiedAt: { type: Date, default: null },
             twoFactorEnabled: { type: Boolean, default: false },
             twoFactorSecret: { type: String, default: null },
     },

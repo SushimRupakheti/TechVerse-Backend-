@@ -16,6 +16,26 @@ let userRepository =new UserRepository();
 
 export class AuthService{
 
+private generateEmailVerificationToken(user: IUser) {
+    return jwt.sign(
+        { id: user._id.toString(), purpose: "email-verification" },
+        JWT_SECRET,
+        { expiresIn: "24h" }
+    );
+}
+
+private async sendVerificationEmail(user: IUser) {
+    const token = this.generateEmailVerificationToken(user);
+    const verificationLink = `${CLIENT_URL}/verify-email?token=${encodeURIComponent(token)}`;
+    const html = `
+        <p>Welcome to our platform.</p>
+        <p>Please click the button below to verify your email address.</p>
+        <p><a href="${verificationLink}" style="display:inline-block;padding:12px 20px;background:#2563eb;color:#fff;text-decoration:none;border-radius:4px">Verify Email</a></p>
+        <p>This link will expire in 24 hours.</p>
+    `;
+    await sendEmail(user.email, "Verify your email", html);
+}
+
 generateLoginToken(user: IUser) {
     const payload={
         id: user._id,
@@ -42,7 +62,10 @@ async registerUser(data:PublicRegisterUserDto){
         password: hashedPassword,
         authProvider: "local",
         role: "customer",
+        isVerified: false,
+        emailVerifiedAt: null,
     });
+    await this.sendVerificationEmail(newUser);
     return newUser
 
 
@@ -62,6 +85,9 @@ async LoginUser(data:LoginUserDto){
     if(!validPassword){
         throw new HttpError(404,"Invalid password");
     }
+    if(!user.isVerified){
+        throw new HttpError(403,"Please verify your email before logging in.");
+    }
 
     if(user.twoFactorEnabled){
         return {
@@ -76,6 +102,58 @@ async LoginUser(data:LoginUserDto){
     const token = this.generateLoginToken(user);
     return {token,user}
 } 
+
+async verifyEmail(token?: string) {
+    if (!token) {
+        throw new HttpError(400, "Verification token is required");
+    }
+
+    let decoded: jwt.JwtPayload;
+    try {
+        const payload = jwt.verify(token, JWT_SECRET);
+        if (typeof payload === "string") {
+            throw new Error("Invalid token payload");
+        }
+        decoded = payload;
+    } catch {
+        throw new HttpError(400, "Invalid or expired verification token");
+    }
+
+    if (decoded.purpose !== "email-verification" || typeof decoded.id !== "string") {
+        throw new HttpError(400, "Invalid or expired verification token");
+    }
+
+    const user = await userRepository.getUserById(decoded.id);
+    if (!user) {
+        throw new HttpError(400, "Invalid or expired verification token");
+    }
+    if (user.isVerified) {
+        return { alreadyVerified: true, user };
+    }
+
+    const updatedUser = await userRepository.updateUserById(decoded.id, {
+        isVerified: true,
+        emailVerifiedAt: new Date(),
+    });
+    if (!updatedUser) {
+        throw new HttpError(400, "Invalid or expired verification token");
+    }
+    return { alreadyVerified: false, user: updatedUser };
+}
+
+async resendVerification(email: string) {
+    const user = await userRepository.getUserByEmail(email);
+    if (!user) {
+        // Avoid disclosing whether an email address is registered.
+        return { sent: false, alreadyVerified: false };
+    }
+    if (user.isVerified) {
+        return { sent: false, alreadyVerified: true };
+    }
+
+    await this.sendVerificationEmail(user);
+    return { sent: true, alreadyVerified: false };
+}
 
 async enableTwoFactor(userId:string){
     const user = await userRepository.getUserById(userId);

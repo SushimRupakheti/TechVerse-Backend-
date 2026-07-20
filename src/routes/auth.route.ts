@@ -6,6 +6,7 @@ import {
   forgotPasswordRateLimiter,
   loginRateLimiter,
   resetPasswordRateLimiter,
+  resendVerificationRateLimiter,
   signupRateLimiter,
 } from "../middlewares/rate-limit.middleware";
 import { FRONTEND_URL, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET } from "../config";
@@ -54,6 +55,8 @@ router.get(
 
 router.get("/me", authorizedMiddleWare, authController.getMe);
 router.post('/register', signupRateLimiter, authController.registerUser);
+router.get('/verify-email', authController.verifyEmail);
+router.post('/resend-verification', resendVerificationRateLimiter, authController.resendVerification);
 router.post('/login', failedLoginBlocker, loginRateLimiter, authController.loginUser);
 router.post('/2fa/enable', authorizedMiddleWare, authController.enableTwoFactor);
 router.post('/2fa/verify-setup', authorizedMiddleWare, authController.verifyTwoFactorSetup);

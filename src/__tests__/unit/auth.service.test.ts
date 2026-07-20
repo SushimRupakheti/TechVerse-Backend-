@@ -27,6 +27,7 @@ describe("AuthService unit tests", () => {
     email: baseUserInput.email,
     password: "hashed_password",
     role: "user",
+    isVerified: true,
   } as any;
 
   afterEach(() => {
@@ -55,14 +56,27 @@ describe("AuthService unit tests", () => {
 
     const createSpy = jest
       .spyOn(UserRepository.prototype, "createUser")
-      .mockResolvedValue({ _id: userId, email: baseUserInput.email } as any);
+      .mockResolvedValue({ _id: userId, email: baseUserInput.email, isVerified: false } as any);
+
+    jest.spyOn(jwt, "sign").mockReturnValue("verification_token" as any);
+    const sendSpy = jest.spyOn(email, "sendEmail").mockResolvedValue(undefined as any);
 
     const input = { ...baseUserInput };
     const created = await service.registerUser(input as any);
 
     expect(hashSpy).toHaveBeenCalledWith(baseUserInput.password, 10);
     expect(createSpy).toHaveBeenCalledWith(
-      expect.objectContaining({ email: baseUserInput.email, password: "hashed_pw" })
+      expect.objectContaining({
+        email: baseUserInput.email,
+        password: "hashed_pw",
+        isVerified: false,
+        emailVerifiedAt: null,
+      })
+    );
+    expect(sendSpy).toHaveBeenCalledWith(
+      baseUserInput.email,
+      "Verify your email",
+      expect.stringContaining("verify-email?token=verification_token")
     );
     expect(created).toHaveProperty("email", baseUserInput.email);
   });
@@ -205,5 +219,87 @@ describe("AuthService unit tests", () => {
       statusCode: 400,
       message: "Invalid or expired token",
     });
+  });
+
+  test("12) LoginUser rejects an unverified user with 403 after password validation", async () => {
+    jest.spyOn(UserRepository.prototype, "getUserByEmail").mockResolvedValue({
+      ...repoUser,
+      isVerified: false,
+    });
+    jest.spyOn(bcryptjs as any, "compare").mockImplementation(async () => true);
+
+    await expect(
+      service.LoginUser({ email: baseUserInput.email, password: baseUserInput.password } as any)
+    ).rejects.toMatchObject({
+      statusCode: 403,
+      message: "Please verify your email before logging in.",
+    });
+  });
+
+  test("13) verifyEmail verifies a purpose-scoped token and timestamps the user", async () => {
+    jest.spyOn(jwt, "verify").mockReturnValue({
+      id: userId.toString(),
+      purpose: "email-verification",
+    } as any);
+    jest.spyOn(UserRepository.prototype, "getUserById").mockResolvedValue({
+      ...repoUser,
+      isVerified: false,
+    });
+    const updateSpy = jest.spyOn(UserRepository.prototype, "updateUserById").mockResolvedValue({
+      ...repoUser,
+      isVerified: true,
+    });
+
+    const result = await service.verifyEmail("valid_token");
+
+    expect(updateSpy).toHaveBeenCalledWith(userId.toString(), {
+      isVerified: true,
+      emailVerifiedAt: expect.any(Date),
+    });
+    expect(result.alreadyVerified).toBe(false);
+  });
+
+  test("14) verifyEmail is idempotent for an already verified user", async () => {
+    jest.spyOn(jwt, "verify").mockReturnValue({
+      id: userId.toString(),
+      purpose: "email-verification",
+    } as any);
+    jest.spyOn(UserRepository.prototype, "getUserById").mockResolvedValue(repoUser);
+    const updateSpy = jest.spyOn(UserRepository.prototype, "updateUserById");
+
+    const result = await service.verifyEmail("valid_token");
+
+    expect(result.alreadyVerified).toBe(true);
+    expect(updateSpy).not.toHaveBeenCalled();
+  });
+
+  test("15) verifyEmail rejects tokens issued for another purpose", async () => {
+    jest.spyOn(jwt, "verify").mockReturnValue({
+      id: userId.toString(),
+      purpose: "password-reset",
+    } as any);
+
+    await expect(service.verifyEmail("wrong_purpose")).rejects.toMatchObject({
+      statusCode: 400,
+      message: "Invalid or expired verification token",
+    });
+  });
+
+  test("16) resendVerification sends mail only for an unverified account", async () => {
+    jest.spyOn(UserRepository.prototype, "getUserByEmail").mockResolvedValue({
+      ...repoUser,
+      isVerified: false,
+    });
+    jest.spyOn(jwt, "sign").mockReturnValue("resent_token" as any);
+    const sendSpy = jest.spyOn(email, "sendEmail").mockResolvedValue(undefined as any);
+
+    const result = await service.resendVerification(baseUserInput.email);
+
+    expect(result).toEqual({ sent: true, alreadyVerified: false });
+    expect(sendSpy).toHaveBeenCalledWith(
+      baseUserInput.email,
+      "Verify your email",
+      expect.stringContaining("resent_token")
+    );
   });
 });

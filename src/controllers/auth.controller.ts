@@ -1,5 +1,5 @@
 import { AuthService } from "../services/auth.services";
-import { DisableTwoFactorDto, LoginUserDto, PublicRegisterUserDto, ResetPasswordDto, UpdateProfileDto, VerifyTwoFactorLoginDto, VerifyTwoFactorSetupDto } from "../dtos/auth.dto";
+import { DisableTwoFactorDto, LoginUserDto, PublicRegisterUserDto, ResendVerificationDto, ResetPasswordDto, UpdateProfileDto, VerifyTwoFactorLoginDto, VerifyTwoFactorSetupDto } from "../dtos/auth.dto";
 import z from "zod";
 import { CookieOptions, Request, Response } from "express";
 import { FRONTEND_URL, NODE_ENV } from "../config";
@@ -70,12 +70,55 @@ export class AuthController {
 
       const newUser = await authservice.registerUser(parsedData.data);
       return res.status(201).json(
-        { success: true, data: newUser, message: "Registered Success" }
+        { success: true, data: removeSensitiveUserFields(newUser), message: "Registration successful. A verification email has been sent." }
       )
     } catch (error: Error | any) {
-      return res.status(500).json(
-        { success: false, message: error.message || "Inernal Server Error" }
+      return res.status(error.statusCode || 500).json(
+        { success: false, message: error.message || "Internal Server Error" }
       )
+    }
+  }
+
+  async verifyEmail(req: Request, res: Response) {
+    try {
+      const token = typeof req.query.token === "string" ? req.query.token : undefined;
+      const result = await authservice.verifyEmail(token);
+      return res.status(200).json({
+        success: true,
+        message: result.alreadyVerified
+          ? "Email address is already verified."
+          : "Email verified successfully.",
+      });
+    } catch (error: any) {
+      return res.status(error.statusCode || 500).json({
+        success: false,
+        message: error.message || "Internal Server Error",
+      });
+    }
+  }
+
+  async resendVerification(req: Request, res: Response) {
+    try {
+      const parsedData = ResendVerificationDto.safeParse(req.body);
+      if (!parsedData.success) {
+        return res.status(400).json({
+          success: false,
+          message: z.prettifyError(parsedData.error),
+        });
+      }
+
+      const result = await authservice.resendVerification(parsedData.data.email);
+      return res.status(200).json({
+        success: true,
+        message: result.alreadyVerified
+          ? "Email address is already verified."
+          : "If an unverified account exists for that email, a verification email has been sent.",
+      });
+    } catch (error: any) {
+      return res.status(error.statusCode || 500).json({
+        success: false,
+        message: error.message || "Internal Server Error",
+      });
     }
   }
 
