@@ -7,9 +7,9 @@ This backend applies defense-in-depth across authentication, authorization, inpu
 
 Implemented security controls:
 
-- Authentication and session handling: protected routes require valid JWT authentication, token format is checked, and invalid tokens return generic unauthorized responses.
+- Authentication and session handling: protected routes require valid JWT authentication, new local accounts require email verification, token format and purpose are checked, and invalid tokens return safe responses.
 - Role and privilege protection: public signup cannot set `role`, public users are created as `customer`, admin creation is separated, and profile updates cannot escalate privileges.
-- Rate limiting: login is limited to `10` attempts per `15 minutes`; signup, password reset, payment, and upload routes also have dedicated rate limiters.
+- Rate limiting: login is limited to `10` attempts per `15 minutes`; signup, verification resend, password reset, payment, and upload routes also have dedicated rate limiters.
 - NoSQL injection protection: auth input uses strict Zod schemas, email is normalized, and user lookup uses exact `$eq` matching to block Mongo operator injection.
 - Product XSS protection: product text is validated and sanitized before MongoDB storage; HTML tags, script tags, event handlers, and dangerous protocols are stripped.
 - Admin dashboard safety: pending seller-created product data is sanitized before admins view or update it.
@@ -28,6 +28,99 @@ Signup and reset-password flows now require strong passwords. This applies durin
 - At least one special character
 
 This is enforced in `src/dtos/auth.dto.ts` through `strongPasswordSchema`, `PublicRegisterUserDto`, `createUserDto`, and `ResetPasswordDto`. The reset endpoint `POST /api/auth/reset-password/:token` validates `newPassword` in `src/controllers/auth.controller.ts` before hashing and storing it. Login validation is intentionally not tightened beyond basic string length so existing accounts can still authenticate.
+
+## Email verification
+
+New local accounts must verify their email address before they can log in. The implementation reuses the existing JWT configuration and `sendEmail` helper instead of introducing a separate token store or mail provider.
+
+### User fields
+
+The user model in `src/models/user.model.ts` includes:
+
+- `isVerified`: boolean, defaults to `false`.
+- `emailVerifiedAt`: nullable timestamp, defaults to `null` and is set when verification succeeds.
+
+Google OAuth accounts are marked as verified because Google has already verified ownership of the returned email address.
+
+### Registration flow
+
+`POST /api/auth/register` validates the signup body, hashes the password, creates a local customer with `isVerified: false`, and sends a verification email. Registration does not create a login JWT or automatically log the user in. Passwords and two-factor secrets are removed from the API response.
+
+Successful response (`201 Created`):
+
+```json
+{
+  "success": true,
+  "data": {
+    "email": "user@example.com",
+    "isVerified": false,
+    "emailVerifiedAt": null
+  },
+  "message": "Registration successful. A verification email has been sent."
+}
+```
+
+The email subject is `Verify your email`. Its button points to:
+
+```txt
+CLIENT_URL/verify-email?token=TOKEN
+```
+
+Set `CLIENT_URL` to the frontend origin, for example `https://frontend-domain`. Verification JWTs expire after 24 hours and contain a dedicated `email-verification` purpose claim, preventing login or password-reset JWTs from being used for email verification.
+
+### Verify an email
+
+```http
+GET /api/auth/verify-email?token=TOKEN
+```
+
+The endpoint validates the JWT signature, expiration, purpose, and user. On first success it sets `isVerified` to `true` and `emailVerifiedAt` to the current timestamp. Reusing a valid verification link for an already verified account returns a successful, idempotent response. Missing, invalid, expired, wrong-purpose, and unknown-user tokens return `400 Bad Request` without exposing sensitive token details.
+
+Successful first verification:
+
+```json
+{
+  "success": true,
+  "message": "Email verified successfully."
+}
+```
+
+### Login restriction
+
+The normal login endpoint validates the supplied password and then blocks unverified local accounts with `403 Forbidden`:
+
+```json
+{
+  "success": false,
+  "message": "Please verify your email before logging in."
+}
+```
+
+No authentication cookie or JWT is issued in this case.
+
+### Resend verification email
+
+```http
+POST /api/auth/resend-verification
+Content-Type: application/json
+
+{
+  "email": "user@example.com"
+}
+```
+
+For an unverified account, the endpoint creates a fresh 24-hour verification JWT and sends another email. Verified users receive an informative success message. For an unknown email, the response remains generic so the endpoint cannot be used to discover registered accounts.
+
+Resend requests are limited to 5 per IP address per hour. Exceeding the limit returns `429 Too Many Requests`:
+
+```json
+{
+  "success": false,
+  "message": "Too many verification email requests. Please try again after 1 hour."
+}
+```
+
+The related implementation is contained in `src/services/auth.services.ts`, `src/controllers/auth.controller.ts`, `src/routes/auth.route.ts`, `src/dtos/auth.dto.ts`, and `src/middlewares/rate-limit.middleware.ts`. Focused unit tests cover email sending, login blocking, successful and repeated verification, wrong-purpose token rejection, and resend behavior.
 
 ## Login and signup injection protection
 

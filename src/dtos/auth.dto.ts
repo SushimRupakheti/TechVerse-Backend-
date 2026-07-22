@@ -10,7 +10,6 @@ export const strongPasswordSchema = z
 
 const registerUserBaseDto = userSchema.pick(
     {
-
         firstName: true,
         lastName: true,
         email: true,
