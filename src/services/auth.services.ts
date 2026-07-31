@@ -303,7 +303,11 @@ async getUserById(userId: string) {
         if (!user) {
             return { sent: false };
         }
-        const token = jwt.sign({ id: user._id }, JWT_SECRET, { expiresIn: '1h' }); // 1 hour expiry
+        const token = jwt.sign(
+            { id: user._id, purpose: "password-reset" },
+            JWT_SECRET,
+            { expiresIn: "1h" }
+        );
         const resetLink = `${CLIENT_URL}/reset-password?token=${token}`;
         const html = `<p>Click <a href="${resetLink}">here</a> to reset your password. This link will expire in 1 hour.</p>`;
         await sendEmail(user.email, "Password Reset", html);
@@ -317,6 +321,9 @@ async getUserById(userId: string) {
                 throw new HttpError(400, "Token and new password are required");
             }
             const decoded: any = jwt.verify(token, JWT_SECRET);
+            if (decoded.purpose !== "password-reset" || typeof decoded.id !== "string") {
+                throw new HttpError(400, "Invalid or expired token");
+            }
             const userId = decoded.id;
             const user = await userRepository.getUserById(userId);
             if (!user) {
