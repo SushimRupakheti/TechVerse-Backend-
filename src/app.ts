@@ -2,7 +2,6 @@ import express , { Application, Request, Response } from 'express';
 import helmet from "helmet";
 
 import { connectDB } from './database/mongodb';
-import bodyParser from 'body-parser';
 import { PORT } from './config';
 
 import authRoutes from './routes/auth.route';
@@ -64,10 +63,8 @@ app.post(
   (req: Request, res: Response) => paymentController.handleStripeWebhook(req, res)
 );
 
-app.use(express.json());
-
-app.use(bodyParser.json());
-app.use(bodyParser.urlencoded({extended: true}));
+app.use(express.json({ limit: "100kb" }));
+app.use(express.urlencoded({ extended: true, limit: "100kb", parameterLimit: 100 }));
 
 
 app.get('/', (req: Request, res: Response) => {
