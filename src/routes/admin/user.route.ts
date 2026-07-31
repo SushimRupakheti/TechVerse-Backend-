@@ -1,22 +1,12 @@
 import { Router } from "express";
 import { AdminUserController } from "../../controllers/admin/user.contoller";
-import { Request,Response } from "express";
 import { authorizedMiddleWare, adminMiddleware } from "../../middlewares/authorized.middleware";
 
 
 const router: Router = Router();
 const adminUserController = new AdminUserController();
 
-router.post('/register',authorizedMiddleWare, adminUserController.createUser);
-router.post('/logout', adminUserController.logoutUser);
-
-router.get(
-    '/test',
-    authorizedMiddleWare    ,
-    (req:Request,res:Response)=>{
-        res.send("test route works");
-    }
-);
+router.post('/register', authorizedMiddleWare, adminMiddleware, adminUserController.createUser);
 
 
 router.get(
