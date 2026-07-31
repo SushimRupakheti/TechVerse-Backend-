@@ -1,4 +1,4 @@
-import {createUserDto} from "../../dtos/auth.dto"
+import { AdminUpdateUserDto, createUserDto } from "../../dtos/auth.dto"
 import z from "zod";
 import {Request,Response} from "express";
 import { AuthService } from "../../services/auth.services";
@@ -134,11 +134,18 @@ export class AdminUserController{
                 });
             }
 
-            //  Update user
+            const parsedData = AdminUpdateUserDto.safeParse(req.body);
+            if (!parsedData.success) {
+                return res.status(400).json({
+                    success: false,
+                    message: z.prettifyError(parsedData.error),
+                });
+            }
+
             const updatedUser = await UserModel.findByIdAndUpdate(
                 userid,
-                req.body,
-                { new: true } // return updated document
+                parsedData.data,
+                { new: true, runValidators: true }
             ).select("-password -twoFactorSecret");
 
             //  If user not found

@@ -108,3 +108,18 @@ export const UpdateProfileDto = z
   .refine((data) => Object.keys(data).length > 0, "At least one profile field is required");
 
 export type UpdateProfileDto = z.infer<typeof UpdateProfileDto>;
+
+export const AdminUpdateUserDto = z
+  .object({
+    firstName: profileText("First name", 50).optional(),
+    lastName: profileText("Last name", 50).optional(),
+    contactNo: z.string().trim().min(7).max(30).regex(/^\+?[0-9() -]+$/).optional(),
+    address: profileText("Address", 200).optional(),
+    profileImage: profileImage.nullable().optional(),
+    role: z.enum(["customer", "user", "admin"]).optional(),
+    isVerified: z.boolean().optional(),
+  })
+  .strict()
+  .refine((data) => Object.keys(data).length > 0, "At least one user field is required");
+
+export type AdminUpdateUserDto = z.infer<typeof AdminUpdateUserDto>;
