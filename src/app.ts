@@ -109,6 +109,14 @@ app.use("/api/uploads", uploadRoutes);
 
 
 app.get('/api/test', (req, res) => {
-  res.status(200).json({ message: 'API working' });
+  res.status(200).json({
+    success: true,
+    message: "API is healthy",
+    data: {
+      environment: process.env.NODE_ENV || "development",
+      uptimeSeconds: Math.floor(process.uptime()),
+      timestamp: new Date().toISOString(),
+    },
+  });
 });
 export default app;
