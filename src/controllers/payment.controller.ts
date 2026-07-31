@@ -6,6 +6,7 @@ import { PaymentModel } from "../models/payment.model";
 import { ItemModel } from "../models/item.model";
 import { NotificationService } from "../services/notification.service";
 import mongoose from "mongoose";
+import { FRONTEND_URL } from "../config";
 
 const stripeSecret = process.env.STRIPE_SECRET_KEY || "";
 const stripePublishable =
@@ -108,16 +109,16 @@ export class PaymentController {
     }
 
     try {
-      // Diagnostic log of incoming payload
-      paymentConsole.log("Incoming /stripe/checkout body:", req.body);
-
       // Resolve email from several possible incoming keys
-      const buyerEmailRaw = req.body.buyerEmail ?? req.body.customerEmail ?? req.body.email ?? "";
+      const buyerEmailRaw =
+        (req.user as any)?.email ??
+        req.body.buyerEmail ??
+        req.body.customerEmail ??
+        req.body.email ??
+        "";
       const buyerEmail = (buyerEmailRaw || "").toString().trim() || undefined;
 
       const {
-        amount,
-        productName,
         productId,
         itemId,
         item_id,
@@ -128,17 +129,11 @@ export class PaymentController {
         fullName,
         phoneNo,
         phoneModel,
-        sellerId,
-        price,
         location,
         date,
         time,
         oid,
         refId,
-        successUrl,
-        cancelUrl,
-        success_url,
-        cancel_url,
         metadata = {},
         flow,
       } = req.body;
@@ -146,24 +141,6 @@ export class PaymentController {
         { productId, itemId, item_id, product_id },
         metadata
       );
-
-      const origin =
-        (req.headers.origin as string) ||
-        process.env.NEXT_PUBLIC_APP_ORIGIN ||
-        "http://localhost:3000";
-      const successRedirectUrl =
-        successUrl ||
-        success_url ||
-        `${origin}/stripe/success?session_id={CHECKOUT_SESSION_ID}`;
-      const cancelRedirectUrl =
-        cancelUrl ||
-        cancel_url ||
-        `${origin}/stripe/cancel?order_id=${encodeURIComponent(orderId || resolvedProductId || "")}`;
-
-      const amountNum = Number(amount || price || 0);
-      if (!amountNum || amountNum <= 0) {
-        return res.status(400).json({ error: "Invalid amount" });
-      }
 
       if (!resolvedProductId) {
         return res.status(400).json({ error: "Valid productId or itemId is required" });
@@ -185,17 +162,19 @@ export class PaymentController {
       }
 
       const expectedAmount = Number(product.finalPrice || product.price || 0);
-      if (expectedAmount && amountNum !== expectedAmount) {
-        return res.status(400).json({
-          error: "Payment amount does not match item price",
-        });
+      if (!Number.isFinite(expectedAmount) || expectedAmount <= 0) {
+        return res.status(400).json({ error: "Item does not have a valid price" });
       }
 
+      // Never trust a price supplied by the client. The database is authoritative.
+      const amountNum = expectedAmount;
       const amountForStripe = Math.round(amountNum * 100);
+      const successRedirectUrl = `${FRONTEND_URL}/stripe/success?session_id={CHECKOUT_SESSION_ID}`;
+      const cancelRedirectUrl = `${FRONTEND_URL}/stripe/cancel?order_id=${encodeURIComponent(orderId || resolvedProductId)}`;
 
-      // Ensure metadata.email is present for downstream webhook logic
+      // Only copy the email value needed by downstream webhook logic. Arbitrary
+      // client metadata is intentionally not forwarded to Stripe.
       const mergedMetadata = {
-        ...(metadata || {}),
         email: (metadata && (metadata.email || metadata.CustomerEmail)) || buyerEmail || "",
       };
 
@@ -213,9 +192,9 @@ export class PaymentController {
             buyerPhone: buyerPhone || "",
             fullName: fullName || buyerName || "",
             phoneNo: phoneNo || buyerPhone || "",
-            phoneModel: phoneModel || "",
-            sellerId: sellerId || "",
-            price: price || amountNum,
+            phoneModel: product.phoneModel || phoneModel || "",
+            sellerId: product.sellerId.toString(),
+            price: amountNum,
             location: location || "",
             date: date || new Date().toISOString().split("T")[0],
             time: time || new Date().toLocaleTimeString(),
@@ -264,7 +243,7 @@ export class PaymentController {
             price_data: {
               currency: STRIPE_CURRENCY,
               product_data: {
-                name: productName || "Product",
+                name: product.itemName || product.phoneModel || "Product",
                 description: `Order ID: ${orderId || resolvedProductId || "N/A"}`,
               },
               unit_amount: amountForStripe,
@@ -284,9 +263,9 @@ export class PaymentController {
           buyerPhone: buyerPhone || "",
           fullName: fullName || buyerName || "",
           phoneNo: phoneNo || buyerPhone || "",
-          phoneModel: phoneModel || "",
-          sellerId: sellerId || "",
-          price: price || amountNum,
+          phoneModel: product.phoneModel || phoneModel || "",
+          sellerId: product.sellerId.toString(),
+          price: amountNum,
           location: location || "",
           date: date || new Date().toISOString().split("T")[0],
           time: time || new Date().toLocaleTimeString(),
@@ -322,7 +301,7 @@ export class PaymentController {
       return res.status(200).json({ sessionId: session.id, url: session.url });
     } catch (error: any) {
       paymentConsole.error("Stripe checkout error:", error);
-      return res.status(500).json({ error: error.message || "Failed to create checkout session" });
+      return res.status(500).json({ error: "Failed to create checkout session" });
     }
   }
 
@@ -487,7 +466,7 @@ export class PaymentController {
       });
     } catch (error: any) {
       paymentConsole.error("Stripe payment confirmation error:", error);
-      return res.status(500).json({ error: error.message || "Failed to confirm Stripe payment" });
+      return res.status(500).json({ error: "Failed to confirm Stripe payment" });
     }
   }
 

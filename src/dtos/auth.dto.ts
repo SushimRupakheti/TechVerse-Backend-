@@ -1,5 +1,6 @@
 import z from 'zod';
 import { userSchema } from '../types/user.type';
+import { sanitizeUserText } from '../utils/xss-sanitizer';
 
 export const strongPasswordSchema = z
   .string()
@@ -73,12 +74,37 @@ export const DisableTwoFactorDto = z.object({
 
 export type DisableTwoFactorDto = z.infer<typeof DisableTwoFactorDto>;
 
-export const UpdateProfileDto = z.object({
-  firstName: z.string().optional(),
-  lastName: z.string().optional(),
-  contactNo: z.string().optional(),
-  address: z.string().optional(),
-  profileImage: z.string().nullable().optional(),
-}).strict();
+const profileText = (field: string, max: number) =>
+  z
+    .string({ message: `${field} must be a string` })
+    .transform((value) => sanitizeUserText(value))
+    .refine((value) => value.length > 0, `${field} cannot be empty`)
+    .refine((value) => value.length <= max, `${field} must be at most ${max} characters`);
+
+const profileImage = z
+  .string()
+  .trim()
+  .max(500, "Profile image URL is too long")
+  .refine(
+    (value) => value.startsWith("/") || /^https:\/\//i.test(value),
+    "Profile image must be a relative path or HTTPS URL"
+  );
+
+export const UpdateProfileDto = z
+  .object({
+    firstName: profileText("First name", 50).optional(),
+    lastName: profileText("Last name", 50).optional(),
+    contactNo: z
+      .string()
+      .trim()
+      .min(7, "Contact number must be at least 7 characters")
+      .max(30, "Contact number must be at most 30 characters")
+      .regex(/^\+?[0-9() -]+$/, "Contact number contains invalid characters")
+      .optional(),
+    address: profileText("Address", 200).optional(),
+    profileImage: profileImage.nullable().optional(),
+  })
+  .strict()
+  .refine((data) => Object.keys(data).length > 0, "At least one profile field is required");
 
 export type UpdateProfileDto = z.infer<typeof UpdateProfileDto>;

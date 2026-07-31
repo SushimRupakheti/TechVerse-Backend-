@@ -326,8 +326,37 @@ export class AuthController {
       const updatedUser = await authservice.updateUser(userId, parsedData.data);
       return res.status(200).json({
         success: true,
-        data: updatedUser,
+        data: removeSensitiveUserFields(updatedUser),
         message: "User updated successfully",
+      });
+    } catch (error: any) {
+      return res.status(error.statusCode || 500).json({
+        success: false,
+        message: error.message || "Internal Server Error",
+      });
+    }
+  }
+
+  async updateProfile(req: Request, res: Response) {
+    try {
+      const currentUserId = (req.user as any)?._id?.toString();
+      if (!currentUserId) {
+        return res.status(401).json({ success: false, message: "Unauthorized" });
+      }
+
+      const parsedData = UpdateProfileDto.safeParse(req.body);
+      if (!parsedData.success) {
+        return res.status(400).json({
+          success: false,
+          message: z.prettifyError(parsedData.error),
+        });
+      }
+
+      const updatedUser = await authservice.updateUser(currentUserId, parsedData.data);
+      return res.status(200).json({
+        success: true,
+        data: removeSensitiveUserFields(updatedUser),
+        message: "Profile updated successfully",
       });
     } catch (error: any) {
       return res.status(error.statusCode || 500).json({
@@ -341,7 +370,10 @@ export class AuthController {
     try {
       const userId = req.params.id;
       const user = await authservice.getUserById(userId);
-      return res.status(200).json({ success: true, data: user });
+      return res.status(200).json({
+        success: true,
+        data: removeSensitiveUserFields(user),
+      });
     } catch (error: any) {
       return res.status(error.statusCode || 500).json({
         success: false,

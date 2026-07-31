@@ -54,6 +54,7 @@ router.get(
 );
 
 router.get("/me", authorizedMiddleWare, authController.getMe);
+router.patch("/profile", authorizedMiddleWare, authController.updateProfile);
 router.post('/register', signupRateLimiter, authController.registerUser);
 router.get('/verify-email', authController.verifyEmail);
 router.post('/resend-verification', resendVerificationRateLimiter, authController.resendVerification);
