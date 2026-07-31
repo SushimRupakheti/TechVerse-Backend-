@@ -13,10 +13,18 @@ export class ItemService {
     return item;
   }
 
-  async getAllItems() {
-    return await ItemModel.find()
-      .populate("sellerId", "firstName lastName profileImage")
-      .sort({ createdAt: -1 });
+  async getAllItems(page = 1, limit = 20) {
+    const skip = (page - 1) * limit;
+    const [items, total] = await Promise.all([
+      ItemModel.find()
+        .populate("sellerId", "firstName lastName profileImage")
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit),
+      ItemModel.countDocuments(),
+    ]);
+
+    return { items, total };
   }
 
   async getItemById(id: string) {

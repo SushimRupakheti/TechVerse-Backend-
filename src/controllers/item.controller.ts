@@ -46,11 +46,22 @@ export class ItemController {
 
   async getAllItems(req: Request, res: Response) {
     try {
-      const items = await this.itemService.getAllItems();
+      const page = Math.max(Number.parseInt(String(req.query.page || "1"), 10) || 1, 1);
+      const limit = Math.min(
+        Math.max(Number.parseInt(String(req.query.limit || "20"), 10) || 20, 1),
+        100
+      );
+      const { items, total } = await this.itemService.getAllItems(page, limit);
 
       return res.status(200).json({
         success: true,
         items,
+        meta: {
+          total,
+          page,
+          limit,
+          totalPages: Math.ceil(total / limit),
+        },
       });
     } catch (err: any) {
       return res.status(500).json({
