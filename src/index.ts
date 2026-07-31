@@ -1,11 +1,12 @@
 import { connectDB } from "./database/mongodb";
 import app from "./app";
 import { PORT } from './config';
+import mongoose from "mongoose";
 
 
 async function startServer() {
     await connectDB();
-    app.listen(
+    const server = app.listen(
         PORT,
         "0.0.0.0",
         () => {
@@ -13,6 +14,20 @@ async function startServer() {
         }
     );
 
+    const shutdown = (signal: string) => {
+        console.log(`${signal} received, shutting down gracefully`);
+        server.close(async () => {
+            await mongoose.connection.close();
+            process.exit(0);
+        });
+    };
+
+    process.once("SIGINT", () => shutdown("SIGINT"));
+    process.once("SIGTERM", () => shutdown("SIGTERM"));
+
 }
 
-startServer();
+startServer().catch((error) => {
+    console.error("Server startup failed", error);
+    process.exit(1);
+});
