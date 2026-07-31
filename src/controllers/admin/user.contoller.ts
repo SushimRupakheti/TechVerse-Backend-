@@ -11,6 +11,12 @@ import { UserModel } from "../../models/user.model";
 let authservice= new AuthService();
 let adminUserService = new AdminUserService();
 
+const toSafeUser = (user: any) => {
+    const value = typeof user?.toObject === "function" ? user.toObject() : user;
+    const { password, twoFactorSecret, ...safeUser } = value;
+    return safeUser;
+};
+
 export class AdminUserController{
     async createUser(req: Request,res:Response){
 
@@ -24,7 +30,7 @@ export class AdminUserController{
 
             const newUser = await adminUserService.createUser(parsedData.data);
             return res.status(201).json(
-                {success: true, data: newUser, message: "Registered Success"}
+                {success: true, data: toSafeUser(newUser), message: "Registered Success"}
             )
         }catch(error: Error | any){
             return res.status(500).json(
@@ -60,7 +66,7 @@ export class AdminUserController{
 
             const [users, total] = await Promise.all([
                 UserModel.find()
-                    .select("-password")
+                    .select("-password -twoFactorSecret")
                     .sort({ createdAt: -1 })
                     .skip(skip)
                     .limit(limit),
@@ -94,7 +100,7 @@ export class AdminUserController{
         try {
             const { userid } = req.params;
 
-            const user = await UserModel.findById(userid).select("-password");
+            const user = await UserModel.findById(userid).select("-password -twoFactorSecret");
 
             if (!user) {
                 return res.status(404).json({
@@ -133,7 +139,7 @@ export class AdminUserController{
                 userid,
                 req.body,
                 { new: true } // return updated document
-            ).select("-password");
+            ).select("-password -twoFactorSecret");
 
             //  If user not found
             if (!updatedUser) {
