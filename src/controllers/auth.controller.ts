@@ -385,14 +385,19 @@ export class AuthController {
 
   async sendResetPasswordEmail(req: Request, res: Response) {
     try {
-      const { email } = req.body;
+      const parsedData = ResendVerificationDto.safeParse(req.body);
+      if (!parsedData.success) {
+        return res.status(400).json({
+          success: false,
+          message: z.prettifyError(parsedData.error),
+        });
+      }
 
-      const result = await authservice.sendResetPasswordEmail(email);
+      await authservice.sendResetPasswordEmail(parsedData.data.email);
 
       return res.status(200).json({
         success: true,
-        message: "The reset password link has been sent to your email.",
-        data: result,
+        message: "If an account exists for that email, a reset link has been sent.",
       });
 
     } catch (error: any) {
@@ -415,12 +420,11 @@ export class AuthController {
       });
     }
 
-    const result = await authservice.resetPassword(token, parsedData.data.newPassword);
+    await authservice.resetPassword(token, parsedData.data.newPassword);
 
     return res.status(200).json({
       success: true,
       message: "Password has been reset successfully.",
-      data: result,
     });
 
   } catch (error: any) {

@@ -301,13 +301,13 @@ async getUserById(userId: string) {
         }
         const user = await userRepository.getUserByEmail(email);
         if (!user) {
-            throw new HttpError(404, "User not found");
+            return { sent: false };
         }
         const token = jwt.sign({ id: user._id }, JWT_SECRET, { expiresIn: '1h' }); // 1 hour expiry
         const resetLink = `${CLIENT_URL}/reset-password?token=${token}`;
         const html = `<p>Click <a href="${resetLink}">here</a> to reset your password. This link will expire in 1 hour.</p>`;
         await sendEmail(user.email, "Password Reset", html);
-        return user;
+        return { sent: true };
 
     }
 
@@ -324,7 +324,7 @@ async getUserById(userId: string) {
             }
             const hashedPassword = await bycryptjs.hash(newPassword, 10);
             await userRepository.updateUserById(userId, { password: hashedPassword });
-            return user;
+            return { reset: true };
         } catch (error) {
             throw new HttpError(400, "Invalid or expired token");
         }
