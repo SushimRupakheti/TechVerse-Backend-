@@ -110,8 +110,10 @@ export class AdminPaymentController {
       if (!id) return res.status(400).json({ success: false, message: "Missing id" });
 
       // Try find in StripePaymentModel by _id or sessionId/paymentIntentId
-      const byId = await StripePaymentModel.findById(id).lean();
-      if (byId) return res.status(200).json({ success: true, data: byId, source: "stripe" });
+      if (mongoose.Types.ObjectId.isValid(id)) {
+        const byId = await StripePaymentModel.findById(id).lean();
+        if (byId) return res.status(200).json({ success: true, data: byId, source: "stripe" });
+      }
 
       const bySession = await StripePaymentModel.findOne({ sessionId: id }).lean();
       if (bySession) return res.status(200).json({ success: true, data: bySession, source: "stripe" });
@@ -120,8 +122,10 @@ export class AdminPaymentController {
       if (byIntent) return res.status(200).json({ success: true, data: byIntent, source: "stripe" });
 
       // Fallback to legacy payment id
-      const legacy = await PaymentModel.findById(id).lean();
-      if (legacy) return res.status(200).json({ success: true, data: legacy, source: "legacy" });
+      if (mongoose.Types.ObjectId.isValid(id)) {
+        const legacy = await PaymentModel.findById(id).lean();
+        if (legacy) return res.status(200).json({ success: true, data: legacy, source: "legacy" });
+      }
 
       return res.status(404).json({ success: false, message: "Payment not found" });
     } catch (err: any) {
