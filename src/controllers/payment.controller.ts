@@ -475,6 +475,11 @@ export class PaymentController {
     const sig = req.headers["stripe-signature"] as string | undefined;
     const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET || "";
 
+    if (!webhookSecret) {
+      paymentConsole.error("Stripe webhook secret is not configured.");
+      return res.status(503).send("Webhook unavailable");
+    }
+
     let event: Stripe.Event;
     try {
       const rawBody = req.body as Buffer;
@@ -502,7 +507,7 @@ export class PaymentController {
       }
     } catch (err: any) {
       paymentConsole.error("Webhook signature verification failed:", err.message);
-      return res.status(400).send(`Webhook Error: ${err.message}`);
+      return res.status(400).send("Invalid webhook signature");
     }
 
     // Handle events
