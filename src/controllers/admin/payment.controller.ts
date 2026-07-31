@@ -9,7 +9,10 @@ export class AdminPaymentController {
   async getAllPayments(req: Request, res: Response) {
     try {
       const page = Math.max(parseInt((req.query.page as string) || "1", 10), 1);
-      const limit = Math.max(parseInt((req.query.limit as string) || "10", 10), 1);
+      const limit = Math.min(
+        Math.max(parseInt((req.query.limit as string) || "10", 10), 1),
+        100
+      );
       const need = page * limit;
 
       const [stripeItems, legacyItems, stripeCount, legacyCount] = await Promise.all([
@@ -56,7 +59,7 @@ export class AdminPaymentController {
       const productIds = pageItems
         .filter((x: any) => x.source === "stripe" && x.productId)
         .map((x: any) => x.productId)
-        .filter(Boolean);
+        .filter((id: unknown) => typeof id === "string" && mongoose.Types.ObjectId.isValid(id));
 
       const fetchedItemsMap: Record<string, any> = {};
       if (productIds.length) {
