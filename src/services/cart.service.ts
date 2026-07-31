@@ -21,6 +21,14 @@ export class CartService {
       throw new HttpError(404, "Product not found");
     }
 
+    if (product.isSold || product.status === "sold") {
+      throw new HttpError(409, "Sold items cannot be added to a cart");
+    }
+
+    if (product.status !== "approved") {
+      throw new HttpError(400, "Only approved items can be added to a cart");
+    }
+
     // 1.5 Prevent seller from buying their own item
     const productSeller = product.sellerId as any;
     const sellerId = productSeller?._id
@@ -50,7 +58,7 @@ export class CartService {
 
     // 4. Store product price at time of adding
     const priceAtTime = Number(product.finalPrice);
-    if (Number.isNaN(priceAtTime)) {
+    if (!Number.isFinite(priceAtTime) || priceAtTime <= 0) {
       throw new HttpError(400, "Product has an invalid price");
     }
 
