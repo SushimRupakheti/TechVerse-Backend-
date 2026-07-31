@@ -19,10 +19,13 @@ export class NotificationController {
           .json({ success: false, message: "Unauthorized" });
       }
 
-      const notifications = await notificationService.getNotifications(userId);
+      const page = Math.max(Number.parseInt(String(req.query.page || "1"), 10) || 1, 1);
+      const limit = Math.min(Math.max(Number.parseInt(String(req.query.limit || "20"), 10) || 20, 1), 100);
+      const { notifications, total } = await notificationService.getNotifications(userId, page, limit);
       return res.status(200).json({
         success: true,
         data: notifications,
+        meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
       });
     } catch (error: any) {
       return res.status(error.statusCode || 500).json({

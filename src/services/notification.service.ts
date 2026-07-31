@@ -14,8 +14,12 @@ export class NotificationService {
   /**
    * Get all notifications for the authenticated user (newest first).
    */
-  async getNotifications(userId: string) {
-    return await notificationRepository.findByUserId(userId);
+  async getNotifications(userId: string, page = 1, limit = 20) {
+    const [notifications, total] = await Promise.all([
+      notificationRepository.findByUserId(userId, (page - 1) * limit, limit),
+      notificationRepository.countByUserId(userId),
+    ]);
+    return { notifications, total };
   }
 
   /**

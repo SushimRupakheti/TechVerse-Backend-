@@ -6,7 +6,8 @@ import {
 export interface INotificationRepository {
   create(data: Partial<INotification>): Promise<INotification>;
   createMany(docs: Partial<INotification>[]): Promise<INotification[]>;
-  findByUserId(userId: string): Promise<INotification[]>;
+  findByUserId(userId: string, skip?: number, limit?: number): Promise<INotification[]>;
+  countByUserId(userId: string): Promise<number>;
   findById(id: string): Promise<INotification | null>;
   markAsRead(id: string): Promise<INotification | null>;
   deleteById(id: string): Promise<boolean>;
@@ -24,13 +25,19 @@ export class NotificationRepository implements INotificationRepository {
     return created as unknown as INotification[];
   }
 
-  async findByUserId(userId: string) {
+  async findByUserId(userId: string, skip = 0, limit = 20) {
     return await NotificationModel.find({ user: userId })
       .populate({
         path: "item",
         select: "phoneModel category photos finalPrice status",
       })
-      .sort({ createdAt: -1 });
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit);
+  }
+
+  async countByUserId(userId: string) {
+    return await NotificationModel.countDocuments({ user: userId });
   }
 
   async findById(id: string) {
