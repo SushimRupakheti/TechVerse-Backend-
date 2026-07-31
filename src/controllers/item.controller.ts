@@ -95,7 +95,12 @@ export class ItemController {
 
       const items = await this.itemService.getItemsByUserId(userId);
 
-      return res.status(200).json({ success: true, items });
+      return res.status(200).json({
+        success: true,
+        message: "User items fetched successfully",
+        items,
+        meta: { total: items.length },
+      });
     } catch (err: any) {
       return res.status(err.statusCode || 500).json({
         success: false,

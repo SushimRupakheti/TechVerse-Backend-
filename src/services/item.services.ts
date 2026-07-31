@@ -1,6 +1,7 @@
 import { ItemModel } from "../models/item.model";
 import { CreateItemDTO, UpdateItemDTO } from "../dtos/item.dto";
 import { HttpError } from "../errors/http-error";
+import mongoose from "mongoose";
 
 export class ItemService {
   async createItem(sellerId: string, data: CreateItemDTO) {
@@ -35,6 +36,10 @@ export class ItemService {
   }
 
   async getItemsByUserId(userId: string) {
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      throw new HttpError(400, "Invalid user id");
+    }
+
     return await ItemModel.find({ sellerId: userId })
       .populate("sellerId", "firstName lastName contactNo profileImage")
       .sort({ createdAt: -1 });
