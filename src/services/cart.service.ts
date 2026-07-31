@@ -79,7 +79,7 @@ export class CartService {
   async getCartItems(userId: string) {
     const cart = await cartRepository.findCartByUserId(userId);
     if (!cart) {
-      return { cart: null, items: [], totalPrice: 0 };
+      return { cart: null, items: [], itemCount: 0, totalPrice: 0 };
     }
 
     const items = await cartRepository.getCartItemsWithProducts(
@@ -87,12 +87,11 @@ export class CartService {
     );
 
     // Calculate total price
-    const totalPrice = items.reduce(
-      (sum, item) => sum + item.priceAtTime,
-      0
+    const totalPrice = Number(
+      items.reduce((sum, item) => sum + item.priceAtTime, 0).toFixed(2)
     );
 
-    return { cart, items, totalPrice };
+    return { cart, items, itemCount: items.length, totalPrice };
   }
 
   /**
