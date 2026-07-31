@@ -9,6 +9,10 @@
 # TypeScript build output
 /dist
 
+# Runtime user uploads must never be committed
+/uploads/
+/private-uploads/
+
 # OS generated files
 .DS_Store
 
